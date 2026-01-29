@@ -13,10 +13,13 @@ $(TARGET): $(OBJS)
 
 .SUFFIXES: .bin .asm
 
-tests:
+tests: $(TARGET)
 	./tests11/run_golden_tests.sh
+	make -C tests11/test2
+
 clean:
-	rm -f $(OBJS) $(TARGET) $(MODULES)
+	rm -rf $(OBJS) $(TARGET) $(MODULES) *.dSYM
+	make -C tests11/test2 clean
 
 codestyle:
 	astyle --style=kr --indent=spaces=4 --add-braces *.c

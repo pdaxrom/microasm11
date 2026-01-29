@@ -1,0 +1,15 @@
+    org 1000
+
+    mov	#1000, sp
+
+HELLO:  MOV     #MSG,R1 ;STARTING ADDRESS OF STRING
+1$:     MOVB    (R1)+,R0 ;FETCH NEXT CHARACTER
+        BEQ     DONE    ;IF ZERO, EXIT LOOP
+	MOVB	r0, @#177700
+        BR      1$      ;REPEAT LOOP
+DONE:   NOP
+	nop
+	nop
+	halt
+
+MSG:    db	"Hello, world!", 0

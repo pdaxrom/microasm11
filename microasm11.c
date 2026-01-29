@@ -73,6 +73,8 @@ enum {
     pseudo_include,
     pseudo_chksum,
     pseudo_cpu,
+    pseudo_enabl,
+    pseudo_dsabl,
 };
 
 typedef struct {
@@ -122,6 +124,7 @@ static int set_cpu_by_name(const char *name)
     }
     return 0;
 }
+
 
 static OpCode opcode_table[] = {
     /* double operand */
@@ -254,6 +257,8 @@ static OpCode opcode_table[] = {
     { "include", pseudo_include, 0x0, 0, CPU_ALL },
     { "chksum", pseudo_chksum, 0x0, 0, CPU_ALL },
     { "cpu", pseudo_cpu, 0x0, 0, CPU_ALL },
+    { "enabl", pseudo_enabl, 0x0, 0, CPU_ALL },
+    { "dsabl", pseudo_dsabl, 0x0, 0, CPU_ALL },
 };
 
 typedef struct Register {
@@ -289,6 +294,14 @@ typedef struct Label {
     int line;
     struct Label *prev;
 } Label;
+
+typedef struct LocalDef {
+    int lsb_id;
+    int number;
+    unsigned int address;
+    int line;
+    struct LocalDef *prev;
+} LocalDef;
 
 typedef struct Proc {
     char *name;
@@ -336,6 +349,7 @@ static Label *equs = NULL;
 static Proc *procs = NULL;
 static Macro *macros = NULL;
 static File *files = NULL;
+static LocalDef *local_defs = NULL;
 static FILE *list_out = NULL;
 
 static int error = 0;
@@ -346,6 +360,134 @@ static Proc *in_proc = NULL;
 static int pad_tail_words = 0;
 static int emit_is_fill = 0;
 static int tail_zero_start = -1;
+static int lsb_enabled = 1;
+static int lsb_current = 1;
+static int lsb_next = 1;
+
+typedef struct {
+    int enabled;
+    int id;
+} LSBContext;
+
+#define LSB_STACK_MAX 64
+static LSBContext lsb_stack[LSB_STACK_MAX];
+static int lsb_sp = 0;
+
+static void lsb_reset(void)
+{
+    lsb_enabled = 1;
+    lsb_current = 1;
+    lsb_next = 1;
+    lsb_sp = 0;
+}
+
+static void lsb_start_new(void)
+{
+    if (lsb_enabled) {
+        lsb_current = ++lsb_next;
+    }
+}
+
+static int lsb_push_new(void)
+{
+    if (lsb_sp >= LSB_STACK_MAX) {
+        return 0;
+    }
+    lsb_stack[lsb_sp].enabled = lsb_enabled;
+    lsb_stack[lsb_sp].id = lsb_current;
+    lsb_sp++;
+    lsb_start_new();
+    return 1;
+}
+
+static void lsb_pop(void)
+{
+    if (lsb_sp == 0) {
+        return;
+    }
+    lsb_sp--;
+    lsb_enabled = lsb_stack[lsb_sp].enabled;
+    lsb_current = lsb_stack[lsb_sp].id;
+}
+
+static int parse_local_label_token(const char *name, int *out_num, int *out_suffix)
+{
+    const char *p = name;
+    if (!isdigit((unsigned char)*p)) {
+        return 0;
+    }
+    unsigned int num = 0;
+    while (isdigit((unsigned char)*p)) {
+        num = num * 10 + (*p - '0');
+        p++;
+    }
+    if (*p != '$') {
+        return 0;
+    }
+    if (num > 65535) {
+        return -1;
+    }
+    p++;
+    int suffix = 0;
+    if (*p == 'b' || *p == 'B') {
+        suffix = 'b';
+        p++;
+    } else if (*p == 'f' || *p == 'F') {
+        suffix = 'f';
+        p++;
+    }
+    if (*p != 0) {
+        return -1;
+    }
+    if (out_num) {
+        *out_num = num;
+    }
+    if (out_suffix) {
+        *out_suffix = suffix;
+    }
+    return 1;
+}
+
+static void add_local_def(int num, unsigned int address, int line)
+{
+    LocalDef *n = malloc(sizeof(LocalDef));
+    if (!n) {
+        error = NO_MEMORY_FOR_LABEL;
+        return;
+    }
+    n->lsb_id = lsb_current;
+    n->number = num;
+    n->address = address;
+    n->line = line;
+    n->prev = local_defs;
+    local_defs = n;
+}
+
+static int resolve_local(int num, int dir, unsigned int pc, unsigned int *out_addr)
+{
+    int found = 0;
+    unsigned int best = 0;
+    for (LocalDef *d = local_defs; d; d = d->prev) {
+        if (d->lsb_id != lsb_current || d->number != num) {
+            continue;
+        }
+        if (dir < 0) {
+            if (d->address < pc && (!found || d->address > best)) {
+                best = d->address;
+                found = 1;
+            }
+        } else if (dir > 0) {
+            if (d->address > pc && (!found || d->address < best)) {
+                best = d->address;
+                found = 1;
+            }
+        }
+    }
+    if (found && out_addr) {
+        *out_addr = best;
+    }
+    return found;
+}
 
 #define MAX_OUTPUT (65536)
 
@@ -356,7 +498,7 @@ static int tail_zero_start = -1;
 }
 
 #define SKIP_TOKEN(s) { \
-    if (isalpha(*(s)) || *(s) == '_' || *(s) == ':' || *(s) == '.') { \
+    if (isalpha(*(s)) || isdigit(*(s)) || *(s) == '_' || *(s) == ':' || *(s) == '.') { \
 	(s)++; \
 	while (*(s) && (isalnum(*(s)) || *(s) == '_' || *(s) == '$')) { \
 	    (s)++; \
@@ -939,6 +1081,37 @@ static int operand(char **str)
     }
     *ptr1 = 0;
 
+    int local_num = 0;
+    int local_suffix = 0;
+    int local_parse = parse_local_label_token(tmp, &local_num, &local_suffix);
+    if (local_parse < 0) {
+        error = SYNTAX_ERROR;
+        return 0;
+    }
+
+    if (local_parse > 0 && lsb_enabled) {
+        int dir = (local_suffix == 'f') ? 1 : -1;
+        if (local_suffix == 0) {
+            dir = -1;
+        }
+        if (src_pass == 2) {
+            unsigned int addr = 0;
+            if (!resolve_local(local_num, dir, output_addr, &addr)) {
+                error = SYNTAX_ERROR;
+                return 0;
+            }
+            *str = ptr;
+            return addr;
+        } else {
+            to_second_pass = 1;
+            *str = ptr;
+            return 0;
+        }
+    } else if (local_parse > 0 && !lsb_enabled && local_suffix != 0) {
+        error = SYNTAX_ERROR;
+        return 0;
+    }
+
     Label *label = NULL;
 
     if (in_proc) {
@@ -960,10 +1133,6 @@ static int operand(char **str)
     if (label) {
         *str = ptr;
         return label->address;
-    } else if (match(str, '$')) {
-        return hexnum(str);
-    } else if (match(str, '@')) {
-        return octal_default(str);
     } else if (match(str, '%')) {
         return binary(str);
     } else if (match(str, '\'')) {
@@ -1423,6 +1592,10 @@ static int expand_macro(FILE *inf, Macro *mac, char *args)
     src_line++;
 
     in_macro++;
+    if (!lsb_push_new()) {
+        error = SYNTAX_ERROR;
+        return 1;
+    }
 
     // parse args
     while (args && *args) {
@@ -1492,6 +1665,7 @@ static int expand_macro(FILE *inf, Macro *mac, char *args)
     }
 
     in_macro--;
+    lsb_pop();
 
     return 0;
 }
@@ -1675,17 +1849,42 @@ static int do_asm(FILE *inf, char *line)
             return 1;
         }
 
+        int local_num = 0;
+        int local_suffix = 0;
+        int local_parse = 0;
+        if (label) {
+            local_parse = parse_local_label_token(label, &local_num, &local_suffix);
+            if (local_parse < 0 || local_suffix != 0) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            if (local_parse == 0 && isdigit((unsigned char)label[0])) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+        }
+
+        if (label && lsb_enabled && local_parse == 0) {
+            if (!(opcode && opcode->type == pseudo_proc)) {
+                lsb_start_new();
+            }
+        }
+
         if (label && src_pass == 1 &&
                 (mac || !(opcode && !strcasecmp(opcode->name, "equ")))) {
-            if (in_proc) {
-                Label *global = find_label(&in_proc->globals, label);
-                if (global) {
-                    add_label(&labels, label, output_addr, src_line);
-                } else {
-                    add_label(&in_proc->labels, label, output_addr, src_line);
-                }
+            if (local_parse > 0 && lsb_enabled) {
+                add_local_def(local_num, output_addr, src_line);
             } else {
-                add_label(&labels, label, output_addr, src_line);
+                if (in_proc) {
+                    Label *global = find_label(&in_proc->globals, label);
+                    if (global) {
+                        add_label(&labels, label, output_addr, src_line);
+                    } else {
+                        add_label(&in_proc->labels, label, output_addr, src_line);
+                    }
+                } else {
+                    add_label(&labels, label, output_addr, src_line);
+                }
             }
         }
 
@@ -1743,10 +1942,21 @@ static int do_asm(FILE *inf, char *line)
                 SKIP_BLANK(str);
                 unsigned int val = exp_(&str);
                 if (src_pass == 2) {
-                    if (in_proc) {
-                        add_label(&in_proc->equs, label, val, src_line);
+                    int local_num = 0;
+                    int local_suffix = 0;
+                    int local_parse = parse_local_label_token(label, &local_num, &local_suffix);
+                    if (local_parse < 0 || local_suffix != 0) {
+                        error = SYNTAX_ERROR;
+                        return 1;
+                    }
+                    if (local_parse > 0 && lsb_enabled) {
+                        add_local_def(local_num, val, src_line);
                     } else {
-                        add_label(&equs, label, val, src_line);
+                        if (in_proc) {
+                            add_label(&in_proc->equs, label, val, src_line);
+                        } else {
+                            add_label(&equs, label, val, src_line);
+                        }
                     }
                 }
 
@@ -1762,6 +1972,10 @@ static int do_asm(FILE *inf, char *line)
                 if (in_proc) {
                     error = NESTED_PROC_UNSUPPORTED;
                 } else {
+                    if (!lsb_push_new()) {
+                        error = SYNTAX_ERROR;
+                        return 1;
+                    }
                     in_proc = find_proc(&procs, label);
                     if (!in_proc) {
                         in_proc = add_proc(&procs, label, src_line);
@@ -1773,6 +1987,7 @@ static int do_asm(FILE *inf, char *line)
             }
         } else if (opcode && !strcmp(opcode->name, "endp")) {
             in_proc = NULL;
+            lsb_pop();
 
             if (src_pass == 2) {
                 list_line_words(list_line, output_addr, NULL, 0, line);
@@ -1850,6 +2065,47 @@ static int do_asm(FILE *inf, char *line)
                 error = SYNTAX_ERROR;
                 return 1;
             }
+            if (src_pass == 2) {
+                list_line_words(list_line, output_addr, NULL, 0, line);
+            }
+        } else if (opcode && opcode->type == pseudo_enabl) {
+            if (label) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            SKIP_BLANK(str);
+            char *p = str;
+            SKIP_TOKEN(p);
+            char saved = *p;
+            *p = 0;
+            int ok = (!strcasecmp(str, "lsb"));
+            *p = saved;
+            if (!ok) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            lsb_enabled = 1;
+            lsb_start_new();
+            if (src_pass == 2) {
+                list_line_words(list_line, output_addr, NULL, 0, line);
+            }
+        } else if (opcode && opcode->type == pseudo_dsabl) {
+            if (label) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            SKIP_BLANK(str);
+            char *p = str;
+            SKIP_TOKEN(p);
+            char saved = *p;
+            *p = 0;
+            int ok = (!strcasecmp(str, "lsb"));
+            *p = saved;
+            if (!ok) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            lsb_enabled = 0;
             if (src_pass == 2) {
                 list_line_words(list_line, output_addr, NULL, 0, line);
             }
@@ -2504,6 +2760,8 @@ int main(int argc, char *argv[])
         pad_tail_words = 0;
         emit_is_fill = 0;
         tail_zero_start = -1;
+        lsb_reset();
+        local_defs = NULL;
 
         // Pass 1
 
@@ -2537,6 +2795,7 @@ int main(int argc, char *argv[])
         in_proc = NULL;
         emit_is_fill = 0;
         tail_zero_start = -1;
+        lsb_reset();
 
         if (fseek(in_file, 0, SEEK_SET) != 0) {
             fprintf(stderr, "Error rewinding file for pass 2\n");

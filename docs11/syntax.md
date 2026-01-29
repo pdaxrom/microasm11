@@ -46,9 +46,8 @@ Loop    DEC R0
 
 - **Octal (default):** `100` (octal)
 - **Decimal:** `100.` (trailing dot) or `0d100`
-- **Hex:** `0xFF` or legacy `$FF`
-- **Binary:** `0b1010` or legacy `%1010`
-- **Explicit octal:** legacy `@377`
+- **Hex:** `0xFF`
+- **Binary:** `0b1010` or `%1010`
 - **Character literal:** `'A'`
 - **Current address:** `*` (current output address)
 
@@ -129,6 +128,8 @@ All directives are parsed as mnemonics.
 - `EQU`: `Label EQU <expr>` defines a constant.
 - `CPU <name>`: change CPU profile during assembly. Names: `default`, `dcj-11`,
   `vm1`, `vm1g`, `vm2`.
+- `.ENABL LSB`: enable numeric local labels and start a new local symbol block.
+- `.DSABL LSB`: disable numeric local labels (numeric locals become global symbols).
 - `INCLUDE <file>`: include another source file (quotes accepted).
 - `CHKSUM`: emits a placeholder word and later patches it so the word-sum over
   the output equals `0xFFFF` (one's complement).
@@ -157,6 +158,22 @@ ENDP
 - `PROC` creates a local symbol scope.
 - `GLOBAL` exports a local label to the global scope.
 - Nested procedures are not supported.
+
+## Numeric Local Labels (LSB)
+
+`microasm11` implements MACRO-11-style numeric local labels with Local Symbol
+Blocks (LSB):
+
+- **Definition:** `<number>$:` (e.g. `10$:`)
+- **References:** `10$` (nearest previous), `10$b` (explicit previous),
+  `10$f` (nearest forward)
+- Local labels are visible only inside the current LSB.
+- A new LSB starts on a global label definition (non-`<number>$`). A label that
+  defines a `PROC` does not start a new LSB; `PROC` entry itself starts one.
+  `ENDP` restores the previous LSB.
+- `.ENABL LSB` starts a new LSB and enables local labels; `.DSABL LSB` disables
+  LSB (numeric locals are treated as global symbols).
+- Each macro expansion is isolated in its own LSB.
 
 ## Conditional Assembly
 

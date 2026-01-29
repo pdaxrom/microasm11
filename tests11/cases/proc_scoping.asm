@@ -1,0 +1,7 @@
+ORG 0
+10$: NOP
+P PROC
+10$: NOP
+    BR 10$
+ENDP
+    BR 10$

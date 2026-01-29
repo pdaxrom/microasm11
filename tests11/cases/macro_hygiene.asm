@@ -1,0 +1,7 @@
+ORG 0
+MACRO M
+10$: NOP
+    BR 10$
+ENDM
+M
+M
