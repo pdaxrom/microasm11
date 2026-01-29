@@ -59,6 +59,7 @@ enum {
     op_emt,
     op_spl,
     op_ccode,
+    op_fis,
 
     pseudo_db,
     pseudo_dw,
@@ -152,6 +153,13 @@ static OpCode opcode_table[] = {
     { "ash",  op_eis,    0072000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
     { "ashc", op_eis,    0073000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
     { "xor",  op_xor,    0074000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
+
+    /* FIS (KE11-F) */
+    { "fadd", op_fis,    075000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
+    { "fsub", op_fis,    075010, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
+    { "fmul", op_fis,    075020, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
+    { "fdiv", op_fis,    075030, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
+    { "cfcc", op_none,   075004, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
 
     /* system & trap */
     { "halt", op_none,   0000000, 0, CPU_ALL },
@@ -1995,6 +2003,15 @@ static int do_asm(FILE *inf, char *line)
                     }
                     emit_word(ext_val & 0xFFFF);
                 }
+            } else if (opcode->type == op_fis) {
+                int reg;
+                SKIP_BLANK(str);
+                if (!parse_register(&str, &reg)) {
+                    error = MISSED_OPCODE_ARG_1;
+                    return 1;
+                }
+                word = opcode->base | (reg & 0x07);
+                emit_word(word);
             } else if (opcode->type == op_trap || opcode->type == op_emt) {
                 SKIP_BLANK(str);
                 int val = exp_(&str);

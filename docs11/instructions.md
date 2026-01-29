@@ -10,9 +10,9 @@ The assembler supports `--cpu <name>` to restrict the accepted instruction set:
 
 - `default`: all supported instructions (includes VM2-only opcodes)
 - `dcj-11`: same as current PDP-11 set (EIS supported) + DCJ-11 single-operand extensions
-- `vm1`: EIS not supported, MFPI/MTPI/MFPD/MTPD not supported
-- `vm1g`: EIS supported, MFPI/MTPI/MFPD/MTPD not supported
-- `vm2`: EIS supported + VM2-only system instructions
+- `vm1`: EIS not supported, MFPI/MTPI/MFPD/MTPD not supported, FIS not supported
+- `vm1g`: EIS supported, MFPI/MTPI/MFPD/MTPD not supported, FIS not supported
+- `vm2`: EIS supported + VM2-only system instructions + FIS
 
 If an instruction is not supported for the selected CPU, assembly fails.
 
@@ -67,6 +67,19 @@ If an instruction is not supported for the selected CPU, assembly fails.
 | `CSM` | DCJ-11 extension | 070000 |
 | `TSTSET` | DCJ-11 extension | 072000 |
 | `WRTLCK` | DCJ-11 extension | 073000 |
+
+## FIS (KE11-F)
+
+FIS instructions are supported in `default`, `dcj-11`, and `vm2`.
+They are not supported in `vm1` or `vm1g`.
+
+| Mnemonic | Syntax | Opcode Base |
+|----------|--------|-------------|
+| `FADD` | `FADD Rn` | 075000 |
+| `FSUB` | `FSUB Rn` | 075010 |
+| `FMUL` | `FMUL Rn` | 075020 |
+| `FDIV` | `FDIV Rn` | 075030 |
+| `CFCC` | `CFCC` | 075004 |
 
 ## Branches
 **Syntax:** `Bxx label`
