@@ -178,5 +178,7 @@ microasm11 [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] 
 - Default output is a text hex dump (`.mem`) with 16 bytes per line.
 - `-binary` writes raw bytes.
 - `-verilog` writes a simple RAM module with initialized bytes.
+- `--case-sensitive-symbols` makes labels/macros/procs/EQU symbols case-sensitive.
+- `--jmp-label-indirect` makes `JMP Label` assemble as `@Label` (PC-relative deferred).
 - `--list <file>` writes a listing to the given file.
 - `--list -` writes the listing to stdout.
