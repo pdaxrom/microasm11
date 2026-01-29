@@ -2314,7 +2314,7 @@ static void output_verilog(FILE *outf)
             "endmodule\n");
 }
 
-void output_binary(FILE *outf)
+static void output_binary(FILE *outf)
 {
     unsigned int out_end = (tail_zero_start >= 0) ? (unsigned int)tail_zero_start : output_addr;
     for (unsigned int i = start_addr; i < out_end; i++) {
@@ -2322,7 +2322,7 @@ void output_binary(FILE *outf)
     }
 }
 
-void calculate_chksum(void)
+static void calculate_chksum(void)
 {
     unsigned short chksum = 0;
     for (unsigned int i = start_addr; i < output_addr; i += 2) {
