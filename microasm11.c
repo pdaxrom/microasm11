@@ -72,6 +72,7 @@ enum {
     pseudo_org,
     pseudo_include,
     pseudo_chksum,
+    pseudo_cpu,
 };
 
 typedef struct {
@@ -93,6 +94,34 @@ enum {
 #define CPU_ALL (CPU_DEFAULT | CPU_DCJ11 | CPU_VM1 | CPU_VM1G | CPU_VM2)
 
 static unsigned int current_cpu = CPU_DEFAULT;
+
+static int set_cpu_by_name(const char *name)
+{
+    if (!name || !*name) {
+        return 0;
+    }
+    if (!strcasecmp(name, "default")) {
+        current_cpu = CPU_DEFAULT;
+        return 1;
+    }
+    if (!strcasecmp(name, "dcj-11") || !strcasecmp(name, "dcj11")) {
+        current_cpu = CPU_DCJ11;
+        return 1;
+    }
+    if (!strcasecmp(name, "vm1")) {
+        current_cpu = CPU_VM1;
+        return 1;
+    }
+    if (!strcasecmp(name, "vm1g")) {
+        current_cpu = CPU_VM1G;
+        return 1;
+    }
+    if (!strcasecmp(name, "vm2")) {
+        current_cpu = CPU_VM2;
+        return 1;
+    }
+    return 0;
+}
 
 static OpCode opcode_table[] = {
     /* double operand */
@@ -224,6 +253,7 @@ static OpCode opcode_table[] = {
     { "org", pseudo_org, 0x0, 0, CPU_ALL },
     { "include", pseudo_include, 0x0, 0, CPU_ALL },
     { "chksum", pseudo_chksum, 0x0, 0, CPU_ALL },
+    { "cpu", pseudo_cpu, 0x0, 0, CPU_ALL },
 };
 
 typedef struct Register {
@@ -1787,6 +1817,42 @@ static int do_asm(FILE *inf, char *line)
             if (src_pass == 2) {
                 list_line_words(list_line, output_addr, NULL, 0, line);
             }
+        } else if (opcode && opcode->type == pseudo_cpu) {
+            if (label) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            SKIP_BLANK(str);
+            if (!*str) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            char name_buf[64];
+            if (*str == '\"' || *str == '\'') {
+                char quote = *str++;
+                char *end = strrchr(str, quote);
+                if (!end) {
+                    error = EXPECTED_CLOSE_QUOTE;
+                    return 1;
+                }
+                *end = 0;
+                strncpy(name_buf, str, sizeof(name_buf) - 1);
+                name_buf[sizeof(name_buf) - 1] = 0;
+            } else {
+                char *p = str;
+                int i = 0;
+                while (*p && !isblank((unsigned char)*p) && *p != ',' && i < (int)sizeof(name_buf) - 1) {
+                    name_buf[i++] = *p++;
+                }
+                name_buf[i] = 0;
+            }
+            if (!set_cpu_by_name(name_buf)) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            if (src_pass == 2) {
+                list_line_words(list_line, output_addr, NULL, 0, line);
+            }
         } else if (opcode && opcode->type == pseudo_chksum) {
             use_chksum = 1;
             chksum_addr = output_addr;
@@ -2402,17 +2468,7 @@ int main(int argc, char *argv[])
     }
 
     if (cpu_name) {
-        if (!strcasecmp(cpu_name, "default")) {
-            current_cpu = CPU_DEFAULT;
-        } else if (!strcasecmp(cpu_name, "dcj-11") || !strcasecmp(cpu_name, "dcj11")) {
-            current_cpu = CPU_DCJ11;
-        } else if (!strcasecmp(cpu_name, "vm1")) {
-            current_cpu = CPU_VM1;
-        } else if (!strcasecmp(cpu_name, "vm1g")) {
-            current_cpu = CPU_VM1G;
-        } else if (!strcasecmp(cpu_name, "vm2")) {
-            current_cpu = CPU_VM2;
-        } else {
+        if (!set_cpu_by_name(cpu_name)) {
             fprintf(stderr, "Unknown CPU: %s\n", cpu_name);
             return 1;
         }

@@ -1,0 +1,3 @@
+ORG 0
+CPU vm1
+MUL R0, R1

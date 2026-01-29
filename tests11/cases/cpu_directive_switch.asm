@@ -1,0 +1,5 @@
+ORG 0
+CPU vm1
+XOR R0, R1
+CPU vm2
+GO

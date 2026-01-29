@@ -127,6 +127,8 @@ All directives are parsed as mnemonics.
 - `EVEN`: align output to the next word boundary (2-byte alignment). Takes no
   arguments.
 - `EQU`: `Label EQU <expr>` defines a constant.
+- `CPU <name>`: change CPU profile during assembly. Names: `default`, `dcj-11`,
+  `vm1`, `vm1g`, `vm2`.
 - `INCLUDE <file>`: include another source file (quotes accepted).
 - `CHKSUM`: emits a placeholder word and later patches it so the word-sum over
   the output equals `0xFFFF` (one's complement).
