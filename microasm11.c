@@ -527,7 +527,9 @@ static Register* find_register_in_string(char **str)
     SKIP_BLANK(ptr_str);
 
     while(*ptr_str && isalnum(*ptr_str)) {
-        if (ptr - tmp >= 255) break;
+        if (ptr - tmp >= 255) {
+            break;
+        }
         *ptr++ = *ptr_str++;
     }
 
@@ -2401,69 +2403,69 @@ int main(int argc, char *argv[])
 
         // Pass 2
 
-            do {
-                if (files) {
-                    fclose(in_file);
-                    free(in_file_path);
-                    in_file = files->in_file;
-                    in_file_path = files->in_file_path;
-                    src_line = files->src_line;
-                    File *tmp = files->prev;
-                    free(files);
-                    files = tmp;
+        do {
+            if (files) {
+                fclose(in_file);
+                free(in_file_path);
+                in_file = files->in_file;
+                in_file_path = files->in_file_path;
+                src_line = files->src_line;
+                File *tmp = files->prev;
+                free(files);
+                files = tmp;
+            }
+
+            while(fgets(str, sizeof(str), in_file)) {
+                char *ptr = str;
+                REMOVE_ENDLINE(ptr);
+                if ((err = do_asm(in_file, str)) || error != NO_ERROR) {
+                    fprintf(stderr, "Line %d: %s\n", src_line, str);
+                    fprintf(stderr, "Compilation failed: %s\n\n", get_error_string(error));
+                    return 1;
                 }
-
-                while(fgets(str, sizeof(str), in_file)) {
-                    char *ptr = str;
-                    REMOVE_ENDLINE(ptr);
-                    if ((err = do_asm(in_file, str)) || error != NO_ERROR) {
-                        fprintf(stderr, "Line %d: %s\n", src_line, str);
-                        fprintf(stderr, "Compilation failed: %s\n\n", get_error_string(error));
-                        return 1;
-                    }
-                }
-            } while(files);
-
-            if (use_chksum) {
-                calculate_chksum();
             }
+        } while(files);
 
-            if (pad_tail_words) {
-                emit_word(0);
-                emit_word(0);
+        if (use_chksum) {
+            calculate_chksum();
+        }
+
+        if (pad_tail_words) {
+            emit_word(0);
+            emit_word(0);
+        }
+
+        if (list_out) {
+            fprintf(list_out, "\nConstants:\n");
+            dump_labels(equs);
+            fprintf(list_out, "\nLabels:\n");
+            dump_labels(labels);
+            fprintf(list_out, "\nErrors: %s\n\n", get_error_string(error));
+        }
+
+        if (error == NO_ERROR) {
+            char *name;
+            if (output_path) {
+                name = strdup(output_path);
+            } else {
+                name = get_out_name(input_path, (out_type == 2) ? ".bin" : (out_type == 1) ? ".v" : ".mem");
             }
-
-            if (list_out) {
-                fprintf(list_out, "\nConstants:\n");
-                dump_labels(equs);
-                fprintf(list_out, "\nLabels:\n");
-                dump_labels(labels);
-                fprintf(list_out, "\nErrors: %s\n\n", get_error_string(error));
-            }
-
-            if (error == NO_ERROR) {
-                char *name;
-                if (output_path) {
-                    name = strdup(output_path);
+            FILE *outf = fopen(name, "wb");
+            if (outf) {
+                if (out_type == 2) {
+                    output_binary(outf);
+                } else if (out_type) {
+                    output_verilog(outf);
                 } else {
-                    name = get_out_name(input_path, (out_type == 2) ? ".bin" : (out_type == 1) ? ".v" : ".mem");
+                    output_hex(outf);
                 }
-                FILE *outf = fopen(name, "wb");
-                if (outf) {
-                    if (out_type == 2) {
-                        output_binary(outf);
-                    } else if (out_type) {
-                        output_verilog(outf);
-                    } else {
-                        output_hex(outf);
-                    }
-                    fclose(outf);
-                } else {
-                    error = 1;
-                    fprintf(stderr, "Can't create output file!\n");
-                }
-                 free(name);
-             }
+                fclose(outf);
+            } else {
+                error = 1;
+                fprintf(stderr, "Can't create output file!\n");
+            }
+            free(name);
+        }
 
         fclose(in_file);
         free(in_file_path);
