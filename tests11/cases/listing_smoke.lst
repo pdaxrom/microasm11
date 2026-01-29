@@ -1,0 +1,11 @@
+   1 000000:                       ORG 0
+   2 000000:                       Foo: DW 0123
+   2 000000: 000123
+
+Constants:
+
+Labels:
+[Foo] 000000
+
+Errors: No error
+

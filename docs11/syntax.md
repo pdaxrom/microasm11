@@ -45,10 +45,9 @@ Loop    DEC R0
 `microasm11` uses PDP-11-style number conventions:
 
 - **Octal (default):** `100` (octal)
-- **Decimal:** `100.` (trailing dot)
+- **Decimal:** `100.` (trailing dot) or `0d100`
 - **Hex:** `0xFF` or legacy `$FF`
 - **Binary:** `0b1010` or legacy `%1010`
-- **Decimal prefix:** `0d123`
 - **Explicit octal:** legacy `@377`
 - **Character literal:** `'A'`
 - **Current address:** `*` (current output address)
@@ -172,7 +171,7 @@ Conditions are evaluated in pass 1 and control which lines are assembled.
 ## Command-Line Interface
 
 ```
-microasm11 [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--list <file|-] <input_file> [output_file]
+microasm11 [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--list <file|-] <input_file> [output_file]
 ```
 
 - Default output is a text hex dump (`.mem`) with 16 bytes per line.
@@ -180,5 +179,6 @@ microasm11 [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] 
 - `-verilog` writes a simple RAM module with initialized bytes.
 - `--case-sensitive-symbols` makes labels/macros/procs/EQU symbols case-sensitive.
 - `--jmp-label-indirect` makes `JMP Label` assemble as `@Label` (PC-relative deferred).
+- `--cpu <name>` selects the CPU profile: `default`, `dcj-11`, `vm1`, `vm1g`, `vm2`.
 - `--list <file>` writes a listing to the given file.
 - `--list -` writes the listing to stdout.

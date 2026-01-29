@@ -4,6 +4,18 @@ This file lists all mnemonics implemented in `microasm11.c`. Opcode values
 are shown in octal (16-bit, up to `0177777`). Byte forms are indicated by a
 trailing `B` and set bit 15 (`0100000`) of the opcode when allowed.
 
+## CPU Profiles
+
+The assembler supports `--cpu <name>` to restrict the accepted instruction set:
+
+- `default`: all supported instructions (includes VM2-only opcodes)
+- `dcj-11`: same as current PDP-11 set (EIS supported)
+- `vm1`: EIS not supported
+- `vm1g`: EIS supported
+- `vm2`: EIS supported + VM2-only system instructions
+
+If an instruction is not supported for the selected CPU, assembly fails.
+
 ## Encoding Notes
 
 - Instruction word size: 16 bits.
@@ -50,6 +62,8 @@ trailing `B` and set bit 15 (`0100000`) of the opcode when allowed.
 | `MTPI` | Move to previous I-space | 006600 |
 | `MFPD` | Move from previous D-space | 106500 |
 | `MTPD` | Move to previous D-space | 106600 |
+| `MTPS` | Move to PS | 106400 |
+| `MFPS` | Move from PS | 106700 |
 
 ## Branches
 **Syntax:** `Bxx label`
@@ -87,6 +101,9 @@ trailing `B` and set bit 15 (`0100000`) of the opcode when allowed.
 
 ## Extended Instruction Set (EIS)
 
+EIS instructions are supported in `default`, `dcj-11`, `vm1g`, `vm2`.
+They are not supported in `vm1`.
+
 | Mnemonic | Syntax | Opcode Base |
 |----------|--------|-------------|
 | `MUL` | `MUL src, Rn` | 070000 |
@@ -110,10 +127,26 @@ trailing `B` and set bit 15 (`0100000`) of the opcode when allowed.
 | `TRAP` | 104400 + vector (8-bit) |
 | `EMT` | 104000 + vector (8-bit) |
 
+## VM2 System Instructions
+
+These are supported only in `vm2` and `default`:
+
+| Mnemonic | Opcode |
+|----------|--------|
+| `GO` | 000012 |
+| `STEP` | 000016 |
+| `RSEL` | 000020 |
+| `MFUS` | 000021 |
+| `RCPC` | 000022 |
+| `RCPS` | 000024 |
+| `MTUS` | 000031 |
+| `WCPC` | 000032 |
+| `WCPS` | 000034 |
+
 ## Processor Status / Priority
 
 | Mnemonic | Syntax | Opcode Base |
-|----------|--------|-------------|
+|----------|--------|
 | `SPL` | `SPL n` | 000230 (low 3 bits used) |
 
 ## Condition Codes

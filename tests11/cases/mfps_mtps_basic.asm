@@ -1,0 +1,3 @@
+ORG 0
+MFPS R0
+MTPS R1

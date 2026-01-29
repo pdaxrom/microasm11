@@ -40,6 +40,7 @@ enum {
     EXTRA_SYMBOLS,
     SYNTAX_ERROR,
     CANNOT_OPEN_FILE,
+    UNSUPPORTED_INSTRUCTION,
 };
 
 enum {
@@ -77,115 +78,141 @@ typedef struct {
     int type;
     unsigned short base;
     int allow_byte;
+    unsigned int cpu_mask;
 } OpCode;
+
+enum {
+    CPU_DEFAULT = 1 << 0,
+    CPU_DCJ11  = 1 << 1,
+    CPU_VM1    = 1 << 2,
+    CPU_VM1G   = 1 << 3,
+    CPU_VM2    = 1 << 4,
+};
+
+#define CPU_ALL (CPU_DEFAULT | CPU_DCJ11 | CPU_VM1 | CPU_VM1G | CPU_VM2)
+
+static unsigned int current_cpu = CPU_DEFAULT;
 
 static OpCode opcode_table[] = {
     /* double operand */
-    { "mov",  op_double, 0010000, 1 },
-    { "cmp",  op_double, 0020000, 1 },
-    { "bit",  op_double, 0030000, 1 },
-    { "bic",  op_double, 0040000, 1 },
-    { "bis",  op_double, 0050000, 1 },
-    { "add",  op_double, 0060000, 0 },
-    { "sub",  op_double, 0160000, 0 },
+    { "mov",  op_double, 0010000, 1, CPU_ALL },
+    { "cmp",  op_double, 0020000, 1, CPU_ALL },
+    { "bit",  op_double, 0030000, 1, CPU_ALL },
+    { "bic",  op_double, 0040000, 1, CPU_ALL },
+    { "bis",  op_double, 0050000, 1, CPU_ALL },
+    { "add",  op_double, 0060000, 0, CPU_ALL },
+    { "sub",  op_double, 0160000, 0, CPU_ALL },
 
     /* single operand */
-    { "clr",  op_single, 005000, 1 },
-    { "com",  op_single, 005100, 1 },
-    { "inc",  op_single, 005200, 1 },
-    { "dec",  op_single, 005300, 1 },
-    { "neg",  op_single, 005400, 1 },
-    { "adc",  op_single, 005500, 1 },
-    { "sbc",  op_single, 005600, 1 },
-    { "tst",  op_single, 005700, 1 },
-    { "ror",  op_single, 006000, 1 },
-    { "rol",  op_single, 006100, 1 },
-    { "asr",  op_single, 006200, 1 },
-    { "asl",  op_single, 006300, 1 },
-    { "swab", op_single, 000300, 0 },
-    { "sxt",  op_single, 006700, 0 },
+    { "clr",  op_single, 005000, 1, CPU_ALL },
+    { "com",  op_single, 005100, 1, CPU_ALL },
+    { "inc",  op_single, 005200, 1, CPU_ALL },
+    { "dec",  op_single, 005300, 1, CPU_ALL },
+    { "neg",  op_single, 005400, 1, CPU_ALL },
+    { "adc",  op_single, 005500, 1, CPU_ALL },
+    { "sbc",  op_single, 005600, 1, CPU_ALL },
+    { "tst",  op_single, 005700, 1, CPU_ALL },
+    { "ror",  op_single, 006000, 1, CPU_ALL },
+    { "rol",  op_single, 006100, 1, CPU_ALL },
+    { "asr",  op_single, 006200, 1, CPU_ALL },
+    { "asl",  op_single, 006300, 1, CPU_ALL },
+    { "swab", op_single, 000300, 0, CPU_ALL },
+    { "sxt",  op_single, 006700, 0, CPU_ALL },
 
     /* branches */
-    { "br",   op_branch, 0000400, 0 },
-    { "bne",  op_branch, 0001000, 0 },
-    { "beq",  op_branch, 0001400, 0 },
-    { "bpl",  op_branch, 0100000, 0 },
-    { "bmi",  op_branch, 0100400, 0 },
-    { "bvc",  op_branch, 0102000, 0 },
-    { "bvs",  op_branch, 0102400, 0 },
-    { "bcc",  op_branch, 0103000, 0 },
-    { "bcs",  op_branch, 0103400, 0 },
-    { "bge",  op_branch, 0002000, 0 },
-    { "blt",  op_branch, 0002400, 0 },
-    { "bgt",  op_branch, 0003000, 0 },
-    { "ble",  op_branch, 0003400, 0 },
-    { "bhi",  op_branch, 0101000, 0 },
-    { "blos", op_branch, 0101400, 0 },
+    { "br",   op_branch, 0000400, 0, CPU_ALL },
+    { "bne",  op_branch, 0001000, 0, CPU_ALL },
+    { "beq",  op_branch, 0001400, 0, CPU_ALL },
+    { "bpl",  op_branch, 0100000, 0, CPU_ALL },
+    { "bmi",  op_branch, 0100400, 0, CPU_ALL },
+    { "bvc",  op_branch, 0102000, 0, CPU_ALL },
+    { "bvs",  op_branch, 0102400, 0, CPU_ALL },
+    { "bcc",  op_branch, 0103000, 0, CPU_ALL },
+    { "bcs",  op_branch, 0103400, 0, CPU_ALL },
+    { "bge",  op_branch, 0002000, 0, CPU_ALL },
+    { "blt",  op_branch, 0002400, 0, CPU_ALL },
+    { "bgt",  op_branch, 0003000, 0, CPU_ALL },
+    { "ble",  op_branch, 0003400, 0, CPU_ALL },
+    { "bhi",  op_branch, 0101000, 0, CPU_ALL },
+    { "blos", op_branch, 0101400, 0, CPU_ALL },
 
     /* program control */
-    { "jmp",  op_jmp,    0000100, 0 },
-    { "jsr",  op_jsr,    0004000, 0 },
-    { "rts",  op_rts,    0000200, 0 },
-    { "sob",  op_sob,    0077000, 0 },
-    { "mark", op_mark,   0006400, 0 },
+    { "jmp",  op_jmp,    0000100, 0, CPU_ALL },
+    { "jsr",  op_jsr,    0004000, 0, CPU_ALL },
+    { "rts",  op_rts,    0000200, 0, CPU_ALL },
+    { "sob",  op_sob,    0077000, 0, CPU_ALL },
+    { "mark", op_mark,   0006400, 0, CPU_ALL },
 
     /* EIS */
-    { "mul",  op_eis,    0070000, 0 },
-    { "div",  op_eis,    0071000, 0 },
-    { "ash",  op_eis,    0072000, 0 },
-    { "ashc", op_eis,    0073000, 0 },
-    { "xor",  op_xor,    0074000, 0 },
+    { "mul",  op_eis,    0070000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
+    { "div",  op_eis,    0071000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
+    { "ash",  op_eis,    0072000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
+    { "ashc", op_eis,    0073000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
+    { "xor",  op_xor,    0074000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
 
     /* system & trap */
-    { "halt", op_none,   0000000, 0 },
-    { "wait", op_none,   0000001, 0 },
-    { "rti",  op_none,   0000002, 0 },
-    { "bpt",  op_none,   0000003, 0 },
-    { "iot",  op_none,   0000004, 0 },
-    { "reset",op_none,   0000005, 0 },
-    { "rtt",  op_none,   0000006, 0 },
-    { "mfpt", op_none,   0000007, 0 },
-    { "trap", op_trap,   0104400, 0 },
-    { "emt",  op_emt,    0104000, 0 },
+    { "halt", op_none,   0000000, 0, CPU_ALL },
+    { "wait", op_none,   0000001, 0, CPU_ALL },
+    { "rti",  op_none,   0000002, 0, CPU_ALL },
+    { "bpt",  op_none,   0000003, 0, CPU_ALL },
+    { "iot",  op_none,   0000004, 0, CPU_ALL },
+    { "reset",op_none,   0000005, 0, CPU_ALL },
+    { "rtt",  op_none,   0000006, 0, CPU_ALL },
+    { "mfpt", op_none,   0000007, 0, CPU_ALL },
+    { "trap", op_trap,   0104400, 0, CPU_ALL },
+    { "emt",  op_emt,    0104000, 0, CPU_ALL },
+
+    /* VM2 system */
+    { "go",   op_none,   0000012, 0, CPU_DEFAULT | CPU_VM2 },
+    { "step", op_none,   0000016, 0, CPU_DEFAULT | CPU_VM2 },
+    { "rsel", op_none,   0000020, 0, CPU_DEFAULT | CPU_VM2 },
+    { "mfus", op_none,   0000021, 0, CPU_DEFAULT | CPU_VM2 },
+    { "rcpc", op_none,   0000022, 0, CPU_DEFAULT | CPU_VM2 },
+    { "rcps", op_none,   0000024, 0, CPU_DEFAULT | CPU_VM2 },
+    { "mtus", op_none,   0000031, 0, CPU_DEFAULT | CPU_VM2 },
+    { "wcpc", op_none,   0000032, 0, CPU_DEFAULT | CPU_VM2 },
+    { "wcps", op_none,   0000034, 0, CPU_DEFAULT | CPU_VM2 },
 
     /* memory management */
-    { "mfpi", op_single, 0006500, 0 },
-    { "mtpi", op_single, 0006600, 0 },
-    { "mfpd", op_single, 0106500, 0 },
-    { "mtpd", op_single, 0106600, 0 },
+    { "mfpi", op_single, 0006500, 0, CPU_ALL },
+    { "mtpi", op_single, 0006600, 0, CPU_ALL },
+    { "mfpd", op_single, 0106500, 0, CPU_ALL },
+    { "mtpd", op_single, 0106600, 0, CPU_ALL },
+    { "mtps", op_single, 0106400, 0, CPU_ALL },
+    { "mfps", op_single, 0106700, 0, CPU_ALL },
 
     /* spl */
-    { "spl",  op_spl,    0000230, 0 },
+    { "spl",  op_spl,    0000230, 0, CPU_ALL },
 
     /* condition codes */
-    { "clc",  op_ccode,  0000241, 0 },
-    { "clv",  op_ccode,  0000242, 0 },
-    { "clz",  op_ccode,  0000244, 0 },
-    { "cln",  op_ccode,  0000250, 0 },
-    { "sec",  op_ccode,  0000261, 0 },
-    { "sev",  op_ccode,  0000262, 0 },
-    { "sez",  op_ccode,  0000264, 0 },
-    { "sen",  op_ccode,  0000270, 0 },
-    { "ccc",  op_ccode,  0000257, 0 },
-    { "scc",  op_ccode,  0000277, 0 },
-    { "nop",  op_ccode,  0000240, 0 },
+    { "clc",  op_ccode,  0000241, 0, CPU_ALL },
+    { "clv",  op_ccode,  0000242, 0, CPU_ALL },
+    { "clz",  op_ccode,  0000244, 0, CPU_ALL },
+    { "cln",  op_ccode,  0000250, 0, CPU_ALL },
+    { "sec",  op_ccode,  0000261, 0, CPU_ALL },
+    { "sev",  op_ccode,  0000262, 0, CPU_ALL },
+    { "sez",  op_ccode,  0000264, 0, CPU_ALL },
+    { "sen",  op_ccode,  0000270, 0, CPU_ALL },
+    { "ccc",  op_ccode,  0000257, 0, CPU_ALL },
+    { "scc",  op_ccode,  0000277, 0, CPU_ALL },
+    { "nop",  op_ccode,  0000240, 0, CPU_ALL },
 
     /* pseudo ops */
-    { "db", pseudo_db, 0x0, 0 },
-    { "dw", pseudo_dw, 0x0, 0 },
-    { "ds", pseudo_ds, 0x0, 0 },
-    { "dsb", pseudo_ds, 0x0, 0 },
-    { "dsw", pseudo_dsw, 0x0, 0 },
-    { "even", pseudo_align, 0x0, 0 },
-    { "macro", pseudo_macro, 0x0, 0 },
-    { "endm", pseudo_macro, 0x0, 0 },
-    { "equ", pseudo_equ, 0x0, 0 },
-    { "proc", pseudo_proc, 0x0, 0 },
-    { "endp", pseudo_proc, 0x0, 0 },
-    { "global", pseudo_proc, 0x0, 0 },
-    { "org", pseudo_org, 0x0, 0 },
-    { "include", pseudo_include, 0x0, 0 },
-    { "chksum", pseudo_chksum, 0x0, 0 },
+    { "db", pseudo_db, 0x0, 0, CPU_ALL },
+    { "dw", pseudo_dw, 0x0, 0, CPU_ALL },
+    { "ds", pseudo_ds, 0x0, 0, CPU_ALL },
+    { "dsb", pseudo_ds, 0x0, 0, CPU_ALL },
+    { "dsw", pseudo_dsw, 0x0, 0, CPU_ALL },
+    { "even", pseudo_align, 0x0, 0, CPU_ALL },
+    { "macro", pseudo_macro, 0x0, 0, CPU_ALL },
+    { "endm", pseudo_macro, 0x0, 0, CPU_ALL },
+    { "equ", pseudo_equ, 0x0, 0, CPU_ALL },
+    { "proc", pseudo_proc, 0x0, 0, CPU_ALL },
+    { "endp", pseudo_proc, 0x0, 0, CPU_ALL },
+    { "global", pseudo_proc, 0x0, 0, CPU_ALL },
+    { "org", pseudo_org, 0x0, 0, CPU_ALL },
+    { "include", pseudo_include, 0x0, 0, CPU_ALL },
+    { "chksum", pseudo_chksum, 0x0, 0, CPU_ALL },
 };
 
 typedef struct Register {
@@ -505,6 +532,14 @@ static OpCode* find_opcode(char *name, int *is_byte)
     }
 
     return NULL;
+}
+
+static int opcode_supported(const OpCode *op)
+{
+    if (!op) {
+        return 0;
+    }
+    return (op->cpu_mask & current_cpu) != 0;
 }
 
 static Register* find_register(char *name)
@@ -1594,6 +1629,11 @@ static int do_asm(FILE *inf, char *line)
             }
         }
 
+        if (opcode && !opcode_supported(opcode) && opcode->type < pseudo_db) {
+            error = UNSUPPORTED_INSTRUCTION;
+            return 1;
+        }
+
         if (label && src_pass == 1 &&
                 (mac || !(opcode && !strcasecmp(opcode->name, "equ")))) {
             if (in_proc) {
@@ -2267,6 +2307,8 @@ static char *get_error_string(int error)
         return "Syntax error";
     case CANNOT_OPEN_FILE:
         return "Cannot open file";
+    case UNSUPPORTED_INSTRUCTION:
+        return "Unsupported instruction for CPU";
     default:
         return "No error";
     }
@@ -2296,9 +2338,10 @@ int main(int argc, char *argv[])
     char *input_path = NULL;
     char *output_path = NULL;
     char *list_path = NULL;
+    const char *cpu_name = NULL;
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--list <file|-] <input_file> [output_file]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--list <file|-] <input_file> [output_file]\n", argv[0]);
         return 1;
     }
 
@@ -2311,6 +2354,12 @@ int main(int argc, char *argv[])
             case_sensitive_symbols = 1;
         } else if (!strcmp(argv[i], "--jmp-label-indirect")) {
             jmp_label_indirect = 1;
+        } else if (!strcmp(argv[i], "--cpu")) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--cpu requires a name\n");
+                return 1;
+            }
+            cpu_name = argv[++i];
         } else if (!strcmp(argv[i], "--list")) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--list requires a file path\n");
@@ -2328,8 +2377,25 @@ int main(int argc, char *argv[])
     }
 
     if (!input_path) {
-        fprintf(stderr, "Usage: %s [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--list <file|-] <input_file> [output_file]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--list <file|-] <input_file> [output_file]\n", argv[0]);
         return 1;
+    }
+
+    if (cpu_name) {
+        if (!strcasecmp(cpu_name, "default")) {
+            current_cpu = CPU_DEFAULT;
+        } else if (!strcasecmp(cpu_name, "dcj-11") || !strcasecmp(cpu_name, "dcj11")) {
+            current_cpu = CPU_DCJ11;
+        } else if (!strcasecmp(cpu_name, "vm1")) {
+            current_cpu = CPU_VM1;
+        } else if (!strcasecmp(cpu_name, "vm1g")) {
+            current_cpu = CPU_VM1G;
+        } else if (!strcasecmp(cpu_name, "vm2")) {
+            current_cpu = CPU_VM2;
+        } else {
+            fprintf(stderr, "Unknown CPU: %s\n", cpu_name);
+            return 1;
+        }
     }
 
     if (list_path) {
