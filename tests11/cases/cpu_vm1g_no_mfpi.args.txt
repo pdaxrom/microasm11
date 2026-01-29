@@ -1,0 +1,2 @@
+EXPECT_FAIL
+--cpu vm1g
