@@ -1,0 +1,16 @@
+ORG 0
+IFDEF R0
+  DB 1
+ELSE
+  DB 2
+ENDIF
+IF 1
+  DB 3
+  IF 0
+    DB 4
+  ELSE
+    DB 5
+  ENDIF
+ELSE
+  DB 6
+ENDIF

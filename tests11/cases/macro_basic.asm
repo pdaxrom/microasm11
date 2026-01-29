@@ -1,0 +1,9 @@
+MACRO M1 a, b
+DB a
+EVEN
+DW b
+ENDM
+
+ORG 0
+M1 1, 01234
+M1 2, 0567

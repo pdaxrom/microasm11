@@ -1,0 +1,3 @@
+ORG 0
+DW 1
+CHKSUM

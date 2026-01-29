@@ -1,0 +1,3 @@
+ORG 0
+INCLUDE "inc1.inc"
+DW VAL

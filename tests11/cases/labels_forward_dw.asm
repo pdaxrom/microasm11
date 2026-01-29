@@ -1,0 +1,4 @@
+ORG 0
+DW L
+NOP
+L: NOP

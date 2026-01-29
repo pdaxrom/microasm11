@@ -1,0 +1,5 @@
+ORG 0200
+SOB R0, target
+NOP
+target:
+NOP

@@ -1,0 +1,5 @@
+ORG 0
+A EQU 01234
+DW A
+B: DW B
+DW B-A

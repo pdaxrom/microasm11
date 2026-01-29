@@ -1,0 +1,4 @@
+ORG 0
+Foo: DW 1
+DW foo
+DW FOO
