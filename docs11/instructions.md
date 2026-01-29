@@ -9,9 +9,9 @@ trailing `B` and set bit 15 (`0100000`) of the opcode when allowed.
 The assembler supports `--cpu <name>` to restrict the accepted instruction set:
 
 - `default`: all supported instructions (includes VM2-only opcodes)
-- `dcj-11`: same as current PDP-11 set (EIS supported)
-- `vm1`: EIS not supported
-- `vm1g`: EIS supported
+- `dcj-11`: same as current PDP-11 set (EIS supported) + DCJ-11 single-operand extensions
+- `vm1`: EIS not supported, MFPI/MTPI/MFPD/MTPD not supported
+- `vm1g`: EIS supported, MFPI/MTPI/MFPD/MTPD not supported
 - `vm2`: EIS supported + VM2-only system instructions
 
 If an instruction is not supported for the selected CPU, assembly fails.
@@ -64,6 +64,9 @@ If an instruction is not supported for the selected CPU, assembly fails.
 | `MTPD` | Move to previous D-space | 106600 |
 | `MTPS` | Move to PS | 106400 |
 | `MFPS` | Move from PS | 106700 |
+| `CSM` | DCJ-11 extension | 070000 |
+| `TSTSET` | DCJ-11 extension | 072000 |
+| `WRTLCK` | DCJ-11 extension | 073000 |
 
 ## Branches
 **Syntax:** `Bxx label`

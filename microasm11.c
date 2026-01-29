@@ -118,6 +118,9 @@ static OpCode opcode_table[] = {
     { "asl",  op_single, 006300, 1, CPU_ALL },
     { "swab", op_single, 000300, 0, CPU_ALL },
     { "sxt",  op_single, 006700, 0, CPU_ALL },
+    { "csm",  op_single, 007000, 0, CPU_DEFAULT | CPU_DCJ11 },
+    { "tstset", op_single, 007200, 0, CPU_DEFAULT | CPU_DCJ11 },
+    { "wrtlck", op_single, 007300, 0, CPU_DEFAULT | CPU_DCJ11 },
 
     /* branches */
     { "br",   op_branch, 0000400, 0, CPU_ALL },
@@ -174,10 +177,10 @@ static OpCode opcode_table[] = {
     { "wcps", op_none,   0000034, 0, CPU_DEFAULT | CPU_VM2 },
 
     /* memory management */
-    { "mfpi", op_single, 0006500, 0, CPU_ALL },
-    { "mtpi", op_single, 0006600, 0, CPU_ALL },
-    { "mfpd", op_single, 0106500, 0, CPU_ALL },
-    { "mtpd", op_single, 0106600, 0, CPU_ALL },
+    { "mfpi", op_single, 0006500, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
+    { "mtpi", op_single, 0006600, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
+    { "mfpd", op_single, 0106500, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
+    { "mtpd", op_single, 0106600, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
     { "mtps", op_single, 0106400, 0, CPU_ALL },
     { "mfps", op_single, 0106700, 0, CPU_ALL },
 
