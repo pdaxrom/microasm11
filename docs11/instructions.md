@@ -162,7 +162,7 @@ These are supported only in `vm2` and `default`:
 ## Processor Status / Priority
 
 | Mnemonic | Syntax | Opcode Base |
-|----------|--------|
+|----------|--------|-------------|
 | `SPL` | `SPL n` | 000230 (low 3 bits used) |
 
 ## Condition Codes

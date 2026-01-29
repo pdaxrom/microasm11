@@ -152,7 +152,7 @@ static OpCode opcode_table[] = {
     { "div",  op_eis,    0071000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
     { "ash",  op_eis,    0072000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
     { "ashc", op_eis,    0073000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
-    { "xor",  op_xor,    0074000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1G | CPU_VM2 },
+    { "xor",  op_xor,    0074000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM1 | CPU_VM1G | CPU_VM2 },
 
     /* FIS (KE11-F) */
     { "fadd", op_fis,    075000, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
