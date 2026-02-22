@@ -1,0 +1,260 @@
+golden_tests:
+
+  - name: f5_control
+    description: "FP11-A F5: control/no-operand"
+    asm: |
+      SETF
+      SETD
+      CFCC
+    expect:
+      words_octal:
+        - 170001   # SETF
+        - 170011   # SETD
+        - 170000   # CFCC
+
+  - name: f4_ldfps_stfps_absdef
+    description: "FP11-A F4: LDFPS/STFPS with absolute deferred @#addr"
+    asm: |
+      ORG 0
+      LDFPS @#177776
+      STFPS @#177774
+    expect:
+      words_octal:
+        - 170100 + 037
+        - 177776
+        - 170200 + 037
+        - 177774
+
+  - name: f2_fdst_memory_indexed
+    description: "FP11-A F2: FDST memory indexed 100(R1)"
+    asm: |
+      ORG 0
+      CLRF 100(R1)
+    expect:
+      words_octal:
+        - 170400 + 061   # 100(R1) => EA=061, disp word follows
+        - 000100
+
+  - name: f2_mode0_fpacc_dec
+    description: "DEC primary syntax: FDST mode0 uses Rn as FP accumulator selector"
+    asm: |
+      ORG 0
+      TSTF R0
+    expect:
+      words_octal:
+        - 170500          # FDST EA=000 (mode0 reg0)
+
+  - name: f2_illegal_fpacc_dec
+    description: "DEC primary syntax: R6/R7 illegal as FP accumulator selector"
+    asm: |
+      ORG 0
+      TSTF R6
+    expect:
+      error: "illegal FP accumulator number"
+
+  - name: f1_fsrc_ac_absdef
+    description: "F1: ADDF FSRC,AC with absolute deferred @#addr"
+    asm: |
+      ORG 0
+      ADDF @#1000, AC2
+    expect:
+      words_octal:
+        - 172000 + 2*100 + 037
+        - 001000
+
+  - name: f1_mode0_fsrc_dec
+    description: "DEC primary syntax: FSRC mode0 uses Rn as FP accumulator selector"
+    asm: |
+      ORG 0
+      ADDF R1, AC1
+    expect:
+      words_octal:
+        - 172000 + 1*100 + 001   # FSRC EA=001 (mode0 reg1)
+
+  - name: f1_no_fpacc_when_decorated
+    description: "DEC rule: decorated R1 is normal EA, not fpacc selector"
+    asm: |
+      ORG 0
+      ADDF (R1), AC1
+    expect:
+      words_octal:
+        - 172000 + 1*100 + 011   # (R1) => EA=011 (mode1 reg1)
+
+  - name: f1_stf_ac_fdst_absdef
+    description: "F1: STF AC,FDST with absolute deferred @#addr"
+    asm: |
+      ORG 0
+      STF AC3, @#2000
+    expect:
+      words_octal:
+        - 174000 + 3*100 + 037
+        - 002000
+
+  - name: f3_ldcif_immediate
+    description: "F3: LDCIF SRC,AC with immediate #imm"
+    asm: |
+      ORG 0
+      LDCIF #10, AC0
+    expect:
+      words_octal:
+        - 177000 + 0*100 + 027   # #imm => EA=027 (mode2 reg7), imm word follows
+        - 000010
+
+  - name: f3_stcfi_indexed
+    description: "F3: STCFI AC,DST with indexed 200(R2)"
+    asm: |
+      ORG 0
+      STCFI AC1, 200(R2)
+    expect:
+      words_octal:
+        - 175400 + 1*100 + 062   # 200(R2) => EA=062 (mode6 reg2), disp word follows
+        - 000200
+
+  - name: f1_ldf_absdef
+    description: "F1: LDF @#addr,AC"
+    asm: |
+      ORG 0
+      LDF @#3000, AC2
+    expect:
+      words_octal:
+        - 172400 + 2*100 + 037
+        - 003000
+
+  - name: f1_ldf_mode0_dec
+    description: "DEC primary syntax: LDF Rn,ACm (FSRC mode0 selects FP accumulator)"
+    asm: |
+      ORG 0
+      LDF R2, AC0
+    expect:
+      words_octal:
+        - 172400 + 0*100 + 002   # FSRC EA=002 (mode0 reg2)
+
+  - name: f1_std_absdef
+    description: "F1: STD AC, @#addr"
+    asm: |
+      ORG 0
+      STD AC1, @#4000
+    expect:
+      words_octal:
+        - 174000 + 1*100 + 037
+        - 004000
+
+  - name: f1_ldcdf_absdef
+    description: "F1: LDCDF @#addr,AC"
+    asm: |
+      ORG 0
+      LDCDF @#5000, AC0
+    expect:
+      words_octal:
+        - 177400 + 0*100 + 037
+        - 005000
+
+  - name: f1_stcdf_absdef
+    description: "F1: STCDF AC,@#addr"
+    asm: |
+      ORG 0
+      STCDF AC3, @#6000
+    expect:
+      words_octal:
+        - 176000 + 3*100 + 037
+        - 006000
+
+  - name: f3_ldexp_immediate
+    description: "F3: LDEXP #imm,AC"
+    asm: |
+      ORG 0
+      LDEXP #7, AC1
+    expect:
+      words_octal:
+        - 176400 + 1*100 + 027
+        - 000007
+
+  - name: f3_stexp_indexed
+    description: "F3: STEXP AC, 12(R3)"
+    asm: |
+      ORG 0
+      STEXP AC2, 12(R3)
+    expect:
+      words_octal:
+        - 175000 + 2*100 + 063   # 12(R3) => EA=063 (mode6 reg3)
+        - 000012
+
+  - name: f1_ldf_pc_relative
+    description: "F1: LDF label(PC),AC (PC-relative)"
+    asm: |
+      ORG 0
+      LDF label(PC), AC0
+      HALT
+      label: .WORD 0
+    expect:
+      words_octal:
+        - 172467                 # 172400 + EA=067
+        - 000002
+        - 000000
+        - 000000
+
+  - name: f1_std_pc_relative
+    description: "F1: STD AC,label(PC) (PC-relative)"
+    asm: |
+      ORG 0
+      STD AC0, label(PC)
+      HALT
+      label: .WORD 0
+    expect:
+      words_octal:
+        - 174067                 # 174000 + EA=067
+        - 000002
+        - 000000
+        - 000000
+
+  - name: f1_ldf_illegal_fpacc_r6
+    description: "DEC primary syntax: R6 illegal as FP accumulator selector in FSRC"
+    asm: |
+      ORG 0
+      LDF R6, AC0
+    expect:
+      error: "illegal FP accumulator number"
+
+  - name: f3_ldexp_r1_is_normal_src
+    description: "F3: SRC uses normal EA; R1 is NOT a FP accumulator selector here"
+    asm: |
+      ORG 0
+      LDEXP R1, AC0
+    expect:
+      words_octal:
+        - 176400 + 0*100 + 001   # SRC EA=001 (mode0 reg1)
+
+  - name: dec_context_does_not_break_integer_regs
+    description: "Integer MOV must still treat Rn as GPR"
+    asm: |
+      ORG 0
+      MOV R1, R0
+    expect:
+      words_octal:
+        - 010100                 # MOV: src=R1 dst=R0
+
+  - name: illegal_ac_field
+    description: "AC field is 2-bit only (AC0..AC3)"
+    asm: |
+      ORG 0
+      ADDF R1, AC5
+    expect:
+      error: "illegal AC field"
+
+  - name: f1_std_deferred_register_is_ea
+    description: "@R1 is register deferred (mode1), not fpacc selector"
+    asm: |
+      ORG 0
+      STD AC0, @R1
+    expect:
+      words_octal:
+        - 174000 + 011           # @R1 => EA=011 (mode1 reg1)
+
+  - name: f1_std_autoincrement_is_mode2
+    description: "(R1)+ is autoincrement (mode2)"
+    asm: |
+      ORG 0
+      STD AC0, (R1)+
+    expect:
+      words_octal:
+        - 174000 + 021           # (R1)+ => EA=021 (mode2 reg1)

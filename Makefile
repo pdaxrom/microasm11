@@ -13,13 +13,20 @@ $(TARGET): $(OBJS)
 
 .SUFFIXES: .bin .asm
 
-tests: $(TARGET)
+tests: $(TARGET) gen-tests
 	./tests11/run_golden_tests.sh
-	make -C tests11/test2
+	./tests11/run_tests.sh
+	$(MAKE) -C tests11/test2
 
-clean:
+gen-tests:
+	python3 tests11/gen_tests.py tests11/fp11_golden.yaml
+
+clean-tests:
+	python3 tests11/gen_tests.py tests11/fp11_golden.yaml --clean
+
+clean: clean-tests
 	rm -rf $(OBJS) $(TARGET) $(MODULES) *.dSYM
-	make -C tests11/test2 clean
+	$(MAKE) -C tests11/test2 clean
 
 codestyle:
 	astyle --style=kr --indent=spaces=4 --add-braces *.c

@@ -190,7 +190,7 @@ Conditions are evaluated in pass 1 and control which lines are assembled.
 ## Command-Line Interface
 
 ```
-microasm11 [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--list <file|-] <input_file> [output_file]
+microasm11 [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--enable-fp11] [--list <file|-] <input_file> [output_file]
 ```
 
 - Default output is a text hex dump (`.mem`) with 16 bytes per line.
@@ -199,5 +199,14 @@ microasm11 [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] 
 - `--case-sensitive-symbols` makes labels/macros/procs/EQU symbols case-sensitive.
 - `--jmp-label-indirect` makes `JMP Label` assemble as `@Label` (PC-relative deferred).
 - `--cpu <name>` selects the CPU profile: `default`, `dcj-11`, `vm1`, `vm1g`, `vm2`.
+- `--enable-fp11` enables FP11 (floating point) instructions.
 - `--list <file>` writes a listing to the given file.
 - `--list -` writes the listing to stdout.
+
+## Floating Point Register Syntax
+
+When `--enable-fp11` is active, certain registers are interpreted contextually:
+
+- **General Purpose:** `R0`..`R5`, `SP`, `PC`.
+- **FP Accumulators (Mode 0):** In instructions where an operand slot is a floating-point source (`FSRC`) or destination (`FDST`), registers `R0` through `R5` are interpreted as floating-point accumulators `AC0` through `AC5`.
+- **Explicit AC Field:** For instructions with a dedicated scratchpad accumulator field, operands must be specified as `AC0`..`AC3`.

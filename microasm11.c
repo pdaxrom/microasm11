@@ -41,6 +41,10 @@ enum {
     SYNTAX_ERROR,
     CANNOT_OPEN_FILE,
     UNSUPPORTED_INSTRUCTION,
+    FP11_NOT_ENABLED,
+    ILLEGAL_AC_FIELD,
+    ILLEGAL_FP_ACC,
+    WRONG_FP_OPERAND_FORM,
 };
 
 enum {
@@ -60,6 +64,11 @@ enum {
     op_spl,
     op_ccode,
     op_fis,
+    op_fp11_f1,
+    op_fp11_f2,
+    op_fp11_f3,
+    op_fp11_f4,
+    op_fp11_f5,
 
     pseudo_db,
     pseudo_dw,
@@ -91,11 +100,13 @@ enum {
     CPU_VM1    = 1 << 2,
     CPU_VM1G   = 1 << 3,
     CPU_VM2    = 1 << 4,
+    CPU_FP11   = 1 << 5,
 };
 
-#define CPU_ALL (CPU_DEFAULT | CPU_DCJ11 | CPU_VM1 | CPU_VM1G | CPU_VM2)
+#define CPU_ALL (CPU_DEFAULT | CPU_DCJ11 | CPU_VM1 | CPU_VM1G | CPU_VM2 | CPU_FP11)
 
 static unsigned int current_cpu = CPU_DEFAULT;
+static int enable_fp11 = 0;
 
 static int set_cpu_by_name(const char *name)
 {
@@ -192,6 +203,60 @@ static OpCode opcode_table[] = {
     { "fmul", op_fis,    075020, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
     { "fdiv", op_fis,    075030, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
 
+    /* FP11 (FPP) */
+    { "cfcc",  op_fp11_f5, 0170000, 0, CPU_ALL },
+    { "setf",  op_fp11_f5, 0170001, 0, CPU_ALL },
+    { "seti",  op_fp11_f5, 0170002, 0, CPU_ALL },
+    { "setd",  op_fp11_f5, 0170011, 0, CPU_ALL },
+    { "setl",  op_fp11_f5, 0170012, 0, CPU_ALL },
+
+    { "ldfps", op_fp11_f4, 0170100, 0, CPU_ALL },
+    { "stfps", op_fp11_f4, 0170200, 0, CPU_ALL },
+    { "stst",  op_fp11_f4, 0170300, 0, CPU_ALL },
+
+    { "clrf",  op_fp11_f2, 0170400, 0, CPU_ALL },
+    { "clrd",  op_fp11_f2, 0170400, 0, CPU_ALL },
+    { "tstf",  op_fp11_f2, 0170500, 0, CPU_ALL },
+    { "tstd",  op_fp11_f2, 0170500, 0, CPU_ALL },
+    { "absf",  op_fp11_f2, 0170600, 0, CPU_ALL },
+    { "absd",  op_fp11_f2, 0170600, 0, CPU_ALL },
+    { "negf",  op_fp11_f2, 0170700, 0, CPU_ALL },
+    { "negd",  op_fp11_f2, 0170700, 0, CPU_ALL },
+
+    { "addf",  op_fp11_f1, 0172000, 0, CPU_ALL },
+    { "addd",  op_fp11_f1, 0172000, 0, CPU_ALL },
+    { "subf",  op_fp11_f1, 0173000, 0, CPU_ALL },
+    { "subd",  op_fp11_f1, 0173000, 0, CPU_ALL },
+    { "cmpf",  op_fp11_f1, 0173400, 0, CPU_ALL },
+    { "cmpd",  op_fp11_f1, 0173400, 0, CPU_ALL },
+    { "mulf",  op_fp11_f1, 0171000, 0, CPU_ALL },
+    { "muld",  op_fp11_f1, 0171000, 0, CPU_ALL },
+    { "divf",  op_fp11_f1, 0174400, 0, CPU_ALL },
+    { "divd",  op_fp11_f1, 0174400, 0, CPU_ALL },
+    { "modf",  op_fp11_f1, 0171400, 0, CPU_ALL },
+    { "modd",  op_fp11_f1, 0171400, 0, CPU_ALL },
+    { "ldf",   op_fp11_f1, 0172400, 0, CPU_ALL },
+    { "ldd",   op_fp11_f1, 0172400, 0, CPU_ALL },
+    { "ldcdf", op_fp11_f1, 0177400, 0, CPU_ALL },
+    { "ldcfd", op_fp11_f1, 0177400, 0, CPU_ALL },
+
+    { "stf",   op_fp11_f1, 0174000, 0, CPU_ALL },
+    { "std",   op_fp11_f1, 0174000, 0, CPU_ALL },
+    { "stcfd", op_fp11_f1, 0176000, 0, CPU_ALL },
+    { "stcdf", op_fp11_f1, 0176000, 0, CPU_ALL },
+
+    { "ldcif", op_fp11_f3, 0177000, 0, CPU_ALL },
+    { "ldcid", op_fp11_f3, 0177000, 0, CPU_ALL },
+    { "ldclf", op_fp11_f3, 0177000, 0, CPU_ALL },
+    { "ldcld", op_fp11_f3, 0177000, 0, CPU_ALL },
+    { "ldexp", op_fp11_f3, 0176400, 0, CPU_ALL },
+
+    { "stexp", op_fp11_f3, 0175000, 0, CPU_ALL },
+    { "stcfi", op_fp11_f3, 0175400, 0, CPU_ALL },
+    { "stcfl", op_fp11_f3, 0175400, 0, CPU_ALL },
+    { "stcdi", op_fp11_f3, 0175400, 0, CPU_ALL },
+    { "stcdl", op_fp11_f3, 0175400, 0, CPU_ALL },
+
     /* system & trap */
     { "halt", op_none,   0000000, 0, CPU_ALL },
     { "wait", op_none,   0000001, 0, CPU_ALL },
@@ -242,6 +307,7 @@ static OpCode opcode_table[] = {
     /* pseudo ops */
     { "db", pseudo_db, 0x0, 0, CPU_ALL },
     { "dw", pseudo_dw, 0x0, 0, CPU_ALL },
+    { "word", pseudo_dw, 0x0, 0, CPU_ALL },
     { "ds", pseudo_ds, 0x0, 0, CPU_ALL },
     { "dsb", pseudo_ds, 0x0, 0, CPU_ALL },
     { "dsw", pseudo_dsw, 0x0, 0, CPU_ALL },
@@ -276,6 +342,15 @@ static Register regs_table[] = {
     { "r7", 7 },
     { "sp", 6 },
     { "pc", 7 },
+};
+
+static Register fp_regs_table[] = {
+    { "ac0", 0 },
+    { "ac1", 1 },
+    { "ac2", 2 },
+    { "ac3", 3 },
+    { "ac4", 4 },
+    { "ac5", 5 },
 };
 
 typedef struct Macro {
@@ -733,6 +808,65 @@ static Register* find_register(char *name)
     }
 
     return NULL;
+}
+
+static Register* find_fp_register(char *name)
+{
+    for (int i = 0; i < sizeof(fp_regs_table) / sizeof(Register); i++) {
+        if (!strcasecmp(name, fp_regs_table[i].name)) {
+            return &fp_regs_table[i];
+        }
+    }
+
+    return NULL;
+}
+
+static int parse_fp_register(char **str, int *reg)
+{
+    char tmp[256];
+    char *ptr = tmp;
+    char *ptr_str = *str;
+
+    SKIP_BLANK(ptr_str);
+
+    while(*ptr_str && isalnum(*ptr_str)) {
+        if (ptr - tmp >= 255) {
+            break;
+        }
+        *ptr++ = *ptr_str++;
+    }
+
+    *ptr = 0;
+
+    Register *r = find_fp_register(tmp);
+
+    if (r) {
+        *str = ptr_str;
+        *reg = r->n;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int parse_fp_acc_mode0(char **str, int *reg)
+{
+    char *ptr_str = *str;
+    SKIP_BLANK(ptr_str);
+
+    if ((*ptr_str == 'r' || *ptr_str == 'R') && isdigit(*(ptr_str + 1))) {
+        int n = *(ptr_str + 1) - '0';
+        if (n >= 0 && n <= 7) {
+            if (n >= 6) {
+                error = ILLEGAL_FP_ACC;
+                return -1;
+            }
+            *reg = n;
+            *str = ptr_str + 2;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static Register* find_register_in_string(char **str)
@@ -2343,6 +2477,188 @@ static int do_asm(FILE *inf, char *line)
                 int val = exp_(&str);
                 word = opcode->base | (val & 0x07);
                 emit_word(word);
+            } else if (opcode->type == op_fp11_f5) {
+                if (!enable_fp11) {
+                    error = FP11_NOT_ENABLED;
+                    return 1;
+                }
+                SKIP_BLANK(str);
+                word = opcode->base;
+                emit_word(word);
+            } else if (opcode->type == op_fp11_f4) {
+                if (!enable_fp11) {
+                    error = FP11_NOT_ENABLED;
+                    return 1;
+                }
+                if (!parse_operand(&str, &dst_op)) {
+                    return 1;
+                }
+                word = opcode->base | operand_spec(&dst_op);
+                emit_word(word);
+                if (dst_op.has_ext) {
+                    unsigned int ext_addr = output_addr;
+                    int ext_val = dst_op.ext;
+                    if (dst_op.pc_relative) {
+                        ext_val = dst_op.ext - (int)(ext_addr + 2);
+                    }
+                    emit_word(ext_val & 0xFFFF);
+                }
+            } else if (opcode->type == op_fp11_f2) {
+                if (!enable_fp11) {
+                    error = FP11_NOT_ENABLED;
+                    return 1;
+                }
+                SKIP_BLANK(str);
+                int ac, ret;
+                if ((ret = parse_fp_acc_mode0(&str, &ac)) != 0) {
+                    if (ret < 0) {
+                        return 1;
+                    }
+                    dst_op.mode = 0;
+                    dst_op.reg = ac;
+                    dst_op.has_ext = 0;
+                } else if (!parse_operand(&str, &dst_op)) {
+                    return 1;
+                }
+                word = opcode->base | operand_spec(&dst_op);
+                emit_word(word);
+                if (dst_op.has_ext) {
+                    unsigned int ext_addr = output_addr;
+                    int ext_val = dst_op.ext;
+                    if (dst_op.pc_relative) {
+                        ext_val = dst_op.ext - (int)(ext_addr + 2);
+                    }
+                    emit_word(ext_val & 0xFFFF);
+                }
+            } else if (opcode->type == op_fp11_f3) {
+                if (!enable_fp11) {
+                    error = FP11_NOT_ENABLED;
+                    return 1;
+                }
+                SKIP_BLANK(str);
+                int ac, is_ac_first = 0;
+                if (!strcasecmp(opcode->name, "stexp") || !strcasecmp(opcode->name, "stcfi") ||
+                        !strcasecmp(opcode->name, "stcfl") || !strcasecmp(opcode->name, "stcdi") ||
+                        !strcasecmp(opcode->name, "stcdl")) {
+                    is_ac_first = 1;
+                }
+
+                Operand *ea_op = &dst_op;
+
+                if (is_ac_first) {
+                    if (!parse_fp_register(&str, &ac)) {
+                        error = ILLEGAL_AC_FIELD;
+                        return 1;
+                    }
+                    if (ac > 3) {
+                        error = ILLEGAL_AC_FIELD;
+                        return 1;
+                    }
+                    if (!match(&str, ',')) {
+                        error = EXPECTED_ARG_2;
+                        return 1;
+                    }
+                    if (!parse_operand(&str, ea_op)) {
+                        return 1;
+                    }
+                } else {
+                    if (!parse_operand(&str, ea_op)) {
+                        return 1;
+                    }
+                    if (!match(&str, ',')) {
+                        error = EXPECTED_ARG_2;
+                        return 1;
+                    }
+                    if (!parse_fp_register(&str, &ac)) {
+                        error = ILLEGAL_AC_FIELD;
+                        return 1;
+                    }
+                    if (ac > 3) {
+                        error = ILLEGAL_AC_FIELD;
+                        return 1;
+                    }
+                }
+                word = opcode->base | (ac << 6) | operand_spec(ea_op);
+                emit_word(word);
+                if (ea_op->has_ext) {
+                    unsigned int ext_addr = output_addr;
+                    int ext_val = ea_op->ext;
+                    if (ea_op->pc_relative) {
+                        ext_val = ea_op->ext - (int)(ext_addr + 2);
+                    }
+                    emit_word(ext_val & 0xFFFF);
+                }
+            } else if (opcode->type == op_fp11_f1) {
+                if (!enable_fp11) {
+                    error = FP11_NOT_ENABLED;
+                    return 1;
+                }
+                SKIP_BLANK(str);
+                int ac, f_ac, ret, is_ac_first = 0;
+                if (!strcasecmp(opcode->name, "stf") || !strcasecmp(opcode->name, "std") ||
+                        !strcasecmp(opcode->name, "stcfd") || !strcasecmp(opcode->name, "stcdf")) {
+                    is_ac_first = 1;
+                }
+
+                Operand *f_ea = &dst_op;
+
+                if (is_ac_first) {
+                    if (!parse_fp_register(&str, &ac)) {
+                        error = ILLEGAL_AC_FIELD;
+                        return 1;
+                    }
+                    if (ac > 3) {
+                        error = ILLEGAL_AC_FIELD;
+                        return 1;
+                    }
+                    if (!match(&str, ',')) {
+                        error = EXPECTED_ARG_2;
+                        return 1;
+                    }
+                    if ((ret = parse_fp_acc_mode0(&str, &f_ac)) != 0) {
+                        if (ret < 0) {
+                            return 1;
+                        }
+                        f_ea->mode = 0;
+                        f_ea->reg = f_ac;
+                        f_ea->has_ext = 0;
+                    } else if (!parse_operand(&str, f_ea)) {
+                        return 1;
+                    }
+                } else {
+                    if ((ret = parse_fp_acc_mode0(&str, &f_ac)) != 0) {
+                        if (ret < 0) {
+                            return 1;
+                        }
+                        f_ea->mode = 0;
+                        f_ea->reg = f_ac;
+                        f_ea->has_ext = 0;
+                    } else if (!parse_operand(&str, f_ea)) {
+                        return 1;
+                    }
+                    if (!match(&str, ',')) {
+                        error = EXPECTED_ARG_2;
+                        return 1;
+                    }
+                    if (!parse_fp_register(&str, &ac)) {
+                        error = ILLEGAL_AC_FIELD;
+                        return 1;
+                    }
+                    if (ac > 3) {
+                        error = ILLEGAL_AC_FIELD;
+                        return 1;
+                    }
+                }
+                word = opcode->base | (ac << 6) | operand_spec(f_ea);
+                emit_word(word);
+                if (f_ea->has_ext) {
+                    unsigned int ext_addr = output_addr;
+                    int ext_val = f_ea->ext;
+                    if (f_ea->pc_relative) {
+                        ext_val = f_ea->ext - (int)(ext_addr + 2);
+                    }
+                    emit_word(ext_val & 0xFFFF);
+                }
             } else if (opcode->type == op_single) {
                 if (!parse_operand(&str, &dst_op)) {
                     return 1;
@@ -2650,6 +2966,14 @@ static char *get_error_string(int error)
         return "Cannot open file";
     case UNSUPPORTED_INSTRUCTION:
         return "Unsupported instruction for CPU";
+    case FP11_NOT_ENABLED:
+        return "FP11 instruction not enabled (use --enable-fp11)";
+    case ILLEGAL_AC_FIELD:
+        return "illegal AC field (must be AC0..AC3)";
+    case ILLEGAL_FP_ACC:
+        return "illegal FP accumulator number (AC6/AC7 not supported on FP11-A)";
+    case WRONG_FP_OPERAND_FORM:
+        return "wrong operand form for this FP11 instruction";
     default:
         return "No error";
     }
@@ -2682,7 +3006,8 @@ int main(int argc, char *argv[])
     const char *cpu_name = NULL;
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--list <file|-] <input_file> [output_file]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--enable-fp11] [--list <file|-] <input_file> [output_file]\n",
+                argv[0]);
         return 1;
     }
 
@@ -2695,6 +3020,8 @@ int main(int argc, char *argv[])
             case_sensitive_symbols = 1;
         } else if (!strcmp(argv[i], "--jmp-label-indirect")) {
             jmp_label_indirect = 1;
+        } else if (!strcmp(argv[i], "--enable-fp11")) {
+            enable_fp11 = 1;
         } else if (!strcmp(argv[i], "--cpu")) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--cpu requires a name\n");

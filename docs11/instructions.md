@@ -80,6 +80,47 @@ They are not supported in `vm1` or `vm1g`.
 | `FMUL` | `FMUL Rn` | 075020 |
 | `FDIV` | `FDIV Rn` | 075030 |
 
+## FP11 (FPP)
+
+FP11 instructions are supported when using the `--enable-fp11` flag.
+
+### Register Interpretation
+
+FP11 instructions use a **context-sensitive syntax** compatible with DEC MACRO-11:
+
+1.  **Floating Accumulators (AC0-AC5)**: In the floating source (`FSRC`) or destination (`FDST`) operand slots, registers `R0` through `R5` (mode 0) are interpreted as floating-point accumulators `AC0` through `AC5`.
+2.  **Scratchpad AC Field**: For instructions with a dedicated 2-bit AC field (e.g., `ADDF`), the operand must be explicitly specified as `AC0`, `AC1`, `AC2`, or `AC3`.
+3.  **General EA**: All other addressing modes (indexed, deferred, etc.) work as normal PDP-11 effective addresses.
+
+### Instructions
+
+| Mnemonic | Format | Description |
+|----------|--------|-------------|
+| `CFCC` | F5 | Copy Floating Condition Codes |
+| `SETF` / `SETD` | F5 | Set Float / Double precision |
+| `SETI` / `SETL` | F5 | Set Integer / Long-integer mode |
+| `LDFPS` / `STFPS` | F4 | Load / Store Floating Program Status |
+| `CLRF(D)` | F2 | Clear |
+| `TSTF(D)` | F2 | Test |
+| `ABSF(D)` | F2 | Absolute Value |
+| `NEGF(D)` | F2 | Negate |
+| `ADDF(D)` | F1 | Add `FSRC, AC` |
+| `SUBF(D)` | F1 | Subtract `FSRC, AC` |
+| `MULF(D)` | F1 | Multiply `FSRC, AC` |
+| `DIVF(D)` | F1 | Divide `FSRC, AC` |
+| `MODF(D)` | F1 | Multiply and Integerize |
+| `CMPF(D)` | F1 | Compare |
+| `LDF(D)` | F1 | Load |
+| `STF(D)` | F1 | Store `AC, FDST` |
+| `LDCDF(D)` | F1 | Convert and Load |
+| `STCDF(D)` | F1 | Convert and Store |
+| `LDCIF(D)` | F3 | Convert Integer to Floating `SRC, AC` |
+| `LDCLF(D)` | F3 | Convert Long to Floating `SRC, AC` |
+| `STCFI(D)` | F3 | Convert Floating to Integer `AC, DST` |
+| `STCFL(D)` | F3 | Convert Floating to Long `AC, DST` |
+| `LDEXP` | F3 | Load Exponent |
+| `STEXP` | F3 | Store Exponent |
+
 ## Branches
 **Syntax:** `Bxx label`
 
