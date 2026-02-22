@@ -307,7 +307,6 @@ static OpCode opcode_table[] = {
     /* pseudo ops */
     { "db", pseudo_db, 0x0, 0, CPU_ALL },
     { "dw", pseudo_dw, 0x0, 0, CPU_ALL },
-    { "word", pseudo_dw, 0x0, 0, CPU_ALL },
     { "ds", pseudo_ds, 0x0, 0, CPU_ALL },
     { "dsb", pseudo_ds, 0x0, 0, CPU_ALL },
     { "dsw", pseudo_dsw, 0x0, 0, CPU_ALL },
