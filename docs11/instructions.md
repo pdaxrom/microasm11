@@ -79,7 +79,6 @@ They are not supported in `vm1` or `vm1g`.
 | `FSUB` | `FSUB Rn` | 075010 |
 | `FMUL` | `FMUL Rn` | 075020 |
 | `FDIV` | `FDIV Rn` | 075030 |
-| `CFCC` | `CFCC` | 075004 |
 
 ## Branches
 **Syntax:** `Bxx label`

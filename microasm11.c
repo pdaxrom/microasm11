@@ -191,7 +191,6 @@ static OpCode opcode_table[] = {
     { "fsub", op_fis,    075010, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
     { "fmul", op_fis,    075020, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
     { "fdiv", op_fis,    075030, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
-    { "cfcc", op_none,   075004, 0, CPU_DEFAULT | CPU_DCJ11 | CPU_VM2 },
 
     /* system & trap */
     { "halt", op_none,   0000000, 0, CPU_ALL },

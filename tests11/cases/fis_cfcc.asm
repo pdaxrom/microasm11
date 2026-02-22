@@ -1,2 +1,0 @@
-ORG 0
-CFCC
