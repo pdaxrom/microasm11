@@ -185,7 +185,7 @@ golden_tests:
       ORG 0
       LDF label(PC), AC0
       HALT
-      label: .WORD 0
+      label: dw 0
     expect:
       words_octal:
         - 172467                 # 172400 + EA=067
@@ -199,7 +199,7 @@ golden_tests:
       ORG 0
       STD AC0, label(PC)
       HALT
-      label: .WORD 0
+      label: dw 0
     expect:
       words_octal:
         - 174067                 # 174000 + EA=067

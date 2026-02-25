@@ -2308,13 +2308,64 @@ static int do_asm(FILE *inf, char *line)
                     }
                     emit_is_fill = 0;
                 }
-            } else if (opcode->type == op_none || opcode->type == op_ccode) {
+            } else if (opcode->type == op_none) {
                 SKIP_BLANK(str);
                 if (*str) {
                     error = EXTRA_SYMBOLS;
                     return 1;
                 }
                 word = opcode->base;
+                emit_word(word);
+            } else if (opcode->type == op_ccode) {
+                int is_set;
+                int have_sep = (last == '!' || last == '|');
+
+                word = opcode->base;
+                is_set = (word & 0000020) != 0;
+
+                while (have_sep || match(&str, '!') || match(&str, '|')) {
+                    char *tok;
+                    char *tok_end;
+                    char saved;
+                    int cc_is_byte = 0;
+                    OpCode *cc_opcode;
+                    int cc_is_set;
+
+                    have_sep = 0;
+                    SKIP_BLANK(str);
+                    tok = str;
+                    SKIP_TOKEN(str);
+                    tok_end = str;
+
+                    if (tok_end == tok) {
+                        error = SYNTAX_ERROR;
+                        return 1;
+                    }
+
+                    saved = *tok_end;
+                    *tok_end = 0;
+                    cc_opcode = find_opcode(tok, &cc_is_byte);
+                    *tok_end = saved;
+
+                    if (!cc_opcode || cc_is_byte || cc_opcode->type != op_ccode) {
+                        error = SYNTAX_ERROR;
+                        return 1;
+                    }
+
+                    cc_is_set = (cc_opcode->base & 0000020) != 0;
+                    if (cc_is_set != is_set) {
+                        error = SYNTAX_ERROR;
+                        return 1;
+                    }
+
+                    word |= (cc_opcode->base & 0000017);
+                }
+
+                SKIP_BLANK(str);
+                if (*str) {
+                    error = EXTRA_SYMBOLS;
+                    return 1;
+                }
                 emit_word(word);
             } else if (opcode->type == op_branch) {
                 SKIP_BLANK(str);
