@@ -113,27 +113,22 @@ static int set_cpu_by_name(const char *name)
     if (!name || !*name) {
         return 0;
     }
+
     if (!strcasecmp(name, "default")) {
         current_cpu = CPU_DEFAULT;
-        return 1;
-    }
-    if (!strcasecmp(name, "dcj-11") || !strcasecmp(name, "dcj11")) {
+    } else  if (!strcasecmp(name, "dcj-11") || !strcasecmp(name, "dcj11")) {
         current_cpu = CPU_DCJ11;
-        return 1;
-    }
-    if (!strcasecmp(name, "vm1")) {
+    } else  if (!strcasecmp(name, "vm1")) {
         current_cpu = CPU_VM1;
-        return 1;
-    }
-    if (!strcasecmp(name, "vm1g")) {
+    } else if (!strcasecmp(name, "vm1g")) {
         current_cpu = CPU_VM1G;
-        return 1;
-    }
-    if (!strcasecmp(name, "vm2")) {
+    } else if (!strcasecmp(name, "vm2")) {
         current_cpu = CPU_VM2;
-        return 1;
+    } else {
+        return 0;
     }
-    return 0;
+
+    return 1;
 }
 
 
