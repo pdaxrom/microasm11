@@ -133,6 +133,12 @@ All directives are parsed as mnemonics.
 - `INCLUDE <file>`: include another source file (quotes accepted).
 - `CHKSUM`: emits a placeholder word and later patches it so the word-sum over
   the output equals `0xFFFF` (one's complement).
+- `EXTERN <symbol>[,<symbol>...]`: declare external symbols for object output.
+- `PUBLIC <symbol>[,<symbol>...]`: export symbols from an object file.
+- `ENTRY <expr>`: set the object entry point. The expression must resolve
+  inside the current object.
+
+`ORG` and `CHKSUM` are not allowed with `-object` output.
 
 ## Macros and Procedures
 
@@ -190,18 +196,31 @@ Conditions are evaluated in pass 1 and control which lines are assembled.
 ## Command-Line Interface
 
 ```
-microasm11 [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--enable-fp11] [--list <file|-] <input_file> [output_file]
+microasm11 [-verilog|-binary|-object|-obj] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--enable-fp11] [--list <file|-] <input_file> [output_file]
 ```
 
 - Default output is a text hex dump (`.mem`) with 16 bytes per line.
 - `-binary` writes raw bytes.
 - `-verilog` writes a simple RAM module with initialized bytes.
+- `-object` / `-obj` writes a relocatable object file.
 - `--case-sensitive-symbols` makes labels/macros/procs/EQU symbols case-sensitive.
 - `--jmp-label-indirect` makes `JMP Label` assemble as `@Label` (PC-relative deferred).
 - `--cpu <name>` selects the CPU profile: `default`, `dcj-11`, `vm1`, `vm1g`, `vm2`.
 - `--enable-fp11` enables FP11 (floating point) instructions.
 - `--list <file>` writes a listing to the given file.
 - `--list -` writes the listing to stdout.
+
+Object files can be linked with:
+
+```
+microlink11 [-verilog|-binary] [-symbols] [-org address] [-o output] input.obj...
+```
+
+Binary and object files can be disassembled with:
+
+```
+microdis11 [-binary|-object|-obj] [-org address] input
+```
 
 ## Floating Point Register Syntax
 

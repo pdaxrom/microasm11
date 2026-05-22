@@ -14,6 +14,12 @@ PDP-11 assembler reference and syntax:
 
 - `microasm11` supports `--cpu <name>`: `default`, `dcj-11`, `vm1`, `vm1g`, `vm2`.
 - `--list <file|-` writes a listing to a file or stdout.
+- `-object` / `-obj` writes a relocatable object file. Object-mode symbol
+  directives are `extern`, `public`, and `entry`.
+- `microlink11` links one or more `.obj` files:
+  `./microlink11 [-verilog|-binary] [-symbols] [-org address] [-o output] input.obj...`.
+- `microdis11` disassembles binary and object files:
+  `./microdis11 [-binary|-object|-obj] [-org address] input`.
 
 ## Testing
 

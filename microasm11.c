@@ -45,6 +45,14 @@ enum {
     ILLEGAL_AC_FIELD,
     ILLEGAL_FP_ACC,
     WRONG_FP_OPERAND_FORM,
+    NO_MEMORY_FOR_RELOC,
+    EXTERN_REDEFINED,
+    PUBLIC_NOT_DEFINED,
+    ORG_NOT_ALLOWED_IN_OBJECT,
+    CHKSUM_NOT_ALLOWED_IN_OBJECT,
+    EXTERN_NOT_ALLOWED_HERE,
+    INVALID_ENTRY_POINT,
+    SYMBOL_NAME_TOO_LONG,
 };
 
 enum {
@@ -84,6 +92,9 @@ enum {
     pseudo_cpu,
     pseudo_enabl,
     pseudo_dsabl,
+    pseudo_extern,
+    pseudo_public,
+    pseudo_entry,
 };
 
 typedef struct {
@@ -305,6 +316,7 @@ static OpCode opcode_table[] = {
     { "ds", pseudo_ds, 0x0, 0, CPU_ALL },
     { "dsb", pseudo_ds, 0x0, 0, CPU_ALL },
     { "dsw", pseudo_dsw, 0x0, 0, CPU_ALL },
+    { "align", pseudo_align, 0x0, 0, CPU_ALL },
     { "even", pseudo_align, 0x0, 0, CPU_ALL },
     { "macro", pseudo_macro, 0x0, 0, CPU_ALL },
     { "endm", pseudo_macro, 0x0, 0, CPU_ALL },
@@ -318,6 +330,9 @@ static OpCode opcode_table[] = {
     { "cpu", pseudo_cpu, 0x0, 0, CPU_ALL },
     { "enabl", pseudo_enabl, 0x0, 0, CPU_ALL },
     { "dsabl", pseudo_dsabl, 0x0, 0, CPU_ALL },
+    { "extern", pseudo_extern, 0x0, 0, CPU_ALL },
+    { "public", pseudo_public, 0x0, 0, CPU_ALL },
+    { "entry", pseudo_entry, 0x0, 0, CPU_ALL },
 };
 
 typedef struct Register {
@@ -360,8 +375,19 @@ typedef struct Label {
     char *name;
     unsigned int address;
     int line;
+    int resolved;
+    int external;
+    int absolute;
     struct Label *prev;
 } Label;
+
+typedef struct Reloc {
+    unsigned char type;
+    unsigned int offset;
+    char *name;
+    int external;
+    struct Reloc *next;
+} Reloc;
 
 typedef struct LocalDef {
     int lsb_id;
@@ -399,6 +425,7 @@ static unsigned int chksum_addr;
 
 static int src_pass = 1;
 static int src_line = 1;
+static int out_type = 0;
 
 static int case_sensitive_symbols = 0;
 static int jmp_label_indirect = 0;
@@ -414,9 +441,13 @@ static int if_sp = 0;
 
 static Label *labels = NULL;
 static Label *equs = NULL;
+static Label *externs = NULL;
+static Label *publics = NULL;
 static Proc *procs = NULL;
 static Macro *macros = NULL;
 static File *files = NULL;
+static Reloc *relocs = NULL;
+static Reloc *relocs_tail = NULL;
 static LocalDef *local_defs = NULL;
 static FILE *list_out = NULL;
 
@@ -431,6 +462,21 @@ static int tail_zero_start = -1;
 static int lsb_enabled = 1;
 static int lsb_current = 1;
 static int lsb_next = 1;
+static int has_entry = 0;
+static unsigned int entry_addr = 0;
+static Label *expr_reloc_label = NULL;
+static int expr_reloc_count = 0;
+static int expr_high_byte = 0;
+
+#define OUT_MEM 0
+#define OUT_VERILOG 1
+#define OUT_BINARY 2
+#define OUT_OBJECT 3
+
+#define RELOC_LSB 0x01
+#define RELOC_MSB 0x02
+#define RELOC_WORD 0x03
+#define RELOC_PCREL_WORD 0x04
 
 typedef struct {
     int enabled;
@@ -711,8 +757,8 @@ static Label* find_label(Label **list, char *name)
     return NULL;
 }
 
-static Label* add_label(Label **list, char *name, unsigned int address,
-                        int line)
+static Label* add_label_ex(Label **list, char *name, unsigned int address,
+                           int line, int resolved)
 {
     if (find_label(list, name)) {
         error = LABEL_ALREADY_DEFINED;
@@ -732,11 +778,170 @@ static Label* add_label(Label **list, char *name, unsigned int address,
     }
     new->address = address;
     new->line = line;
+    new->resolved = resolved;
+    new->external = 0;
+    new->absolute = 0;
     new->prev = *list;
 
     *list = new;
 
     return new;
+}
+
+static Label* add_label(Label **list, char *name, unsigned int address,
+                        int line)
+{
+    return add_label_ex(list, name, address, line, 1);
+}
+
+static Label* set_label(Label **list, char *name, unsigned int address,
+                        int line, int resolved)
+{
+    Label *label = find_label(list, name);
+
+    if (label) {
+        label->address = address;
+        label->line = line;
+        label->resolved = resolved;
+        return label;
+    }
+
+    return add_label_ex(list, name, address, line, resolved);
+}
+
+static int count_labels(Label *list)
+{
+    int count = 0;
+
+    while (list) {
+        count++;
+        list = list->prev;
+    }
+
+    return count;
+}
+
+static int label_index(Label *list, char *name)
+{
+    int index = 0;
+
+    while (list) {
+        if (symbol_eq(list->name, name)) {
+            return index;
+        }
+        index++;
+        list = list->prev;
+    }
+
+    return -1;
+}
+
+static Label* find_any_symbol(char *name)
+{
+    Label *label = NULL;
+
+    if (in_proc) {
+        label = find_label(&in_proc->labels, name);
+
+        if (!label) {
+            label = find_label(&in_proc->equs, name);
+        }
+    }
+
+    if (!label) {
+        label = find_label(&labels, name);
+    }
+
+    if (!label) {
+        label = find_label(&equs, name);
+    }
+
+    if (!label) {
+        label = find_label(&externs, name);
+    }
+
+    return label;
+}
+
+static void reset_expr_reloc(void)
+{
+    expr_reloc_label = NULL;
+    expr_reloc_count = 0;
+    expr_high_byte = 0;
+}
+
+static void note_expr_reloc(Label *label)
+{
+    if (out_type != OUT_OBJECT || !label || label->absolute) {
+        return;
+    }
+
+    if (expr_reloc_label && expr_reloc_label != label) {
+        error = SYNTAX_ERROR;
+        return;
+    }
+
+    expr_reloc_label = label;
+    expr_reloc_count++;
+}
+
+static int check_expr_reloc(void)
+{
+    if (expr_reloc_count > 1) {
+        error = SYNTAX_ERROR;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int reject_reloc_expr(void)
+{
+    if (check_expr_reloc()) {
+        return 1;
+    }
+
+    if (expr_reloc_label) {
+        error = CANNOT_RESOLVE_REF;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int add_reloc(unsigned char type, unsigned int offset, Label *label)
+{
+    Reloc *record;
+
+    if (out_type != OUT_OBJECT || !label || label->absolute) {
+        return 0;
+    }
+
+    record = malloc(sizeof(Reloc));
+    if (!record) {
+        error = NO_MEMORY_FOR_RELOC;
+        return 1;
+    }
+
+    record->type = type;
+    record->offset = offset - start_addr;
+    record->name = strdup(label->name);
+    if (!record->name) {
+        free(record);
+        error = NO_MEMORY_FOR_RELOC;
+        return 1;
+    }
+    record->external = label->external;
+    record->next = NULL;
+
+    if (relocs_tail) {
+        relocs_tail->next = record;
+    } else {
+        relocs = record;
+    }
+    relocs_tail = record;
+
+    return 0;
 }
 
 static void dump_labels(Label *list)
@@ -891,7 +1096,8 @@ static Register* find_register_in_string(char **str)
 
 static int symbol_defined(char *name)
 {
-    if (find_label(&equs, name) || find_label(&labels, name)) {
+    if (find_label(&equs, name) || find_label(&labels, name) ||
+            find_label(&externs, name)) {
         return 1;
     }
     if (in_proc) {
@@ -1239,26 +1445,27 @@ static int operand(char **str)
         return 0;
     }
 
-    Label *label = NULL;
-
-    if (in_proc) {
-        label = find_label(&in_proc->labels, tmp);
-
-        if (!label) {
-            label = find_label(&in_proc->equs, tmp);
-        }
-    }
-
-    if (!label) {
-        label = find_label(&labels, tmp);
-    }
-
-    if (!label) {
-        label = find_label(&equs, tmp);
-    }
+    Label *label = find_any_symbol(tmp);
 
     if (label) {
         *str = ptr;
+        if (label->external) {
+            if (out_type != OUT_OBJECT) {
+                error = CANNOT_RESOLVE_REF;
+                return 0;
+            }
+            note_expr_reloc(label);
+            return 0;
+        }
+        if (!label->resolved) {
+            if (src_pass == 2) {
+                error = CANNOT_RESOLVE_REF;
+            } else {
+                to_second_pass = 1;
+            }
+            return 0;
+        }
+        note_expr_reloc(label);
         return label->address;
     } else if (match(str, '%')) {
         return binary(str);
@@ -1406,6 +1613,7 @@ static int exp2_(char **str)
 static int exp_(char **str)
 {
     if (match(str, '/')) {
+        expr_high_byte = 1;
         return (exp2_(str) >> 8);
     } else {
         return (exp2_(str));
@@ -1418,6 +1626,7 @@ typedef struct Operand {
     int has_ext;
     int ext;
     int pc_relative;
+    Label *reloc_label;
 } Operand;
 
 static int operand_spec(Operand *op)
@@ -1440,6 +1649,13 @@ static int parse_operand(char **str, Operand *op)
     int deferred = 0;
     char *ptr = *str;
 
+    op->mode = 0;
+    op->reg = 0;
+    op->has_ext = 0;
+    op->ext = 0;
+    op->pc_relative = 0;
+    op->reloc_label = NULL;
+
     SKIP_BLANK(ptr);
 
     if (match(&ptr, '@')) {
@@ -1450,7 +1666,12 @@ static int parse_operand(char **str, Operand *op)
         op->mode = deferred ? 3 : 2;
         op->reg = 7;
         op->has_ext = 1;
+        reset_expr_reloc();
         op->ext = exp_(&ptr);
+        if (check_expr_reloc()) {
+            return 0;
+        }
+        op->reloc_label = expr_reloc_label;
         op->pc_relative = 0;
         *str = ptr;
         return 1;
@@ -1472,6 +1693,7 @@ static int parse_operand(char **str, Operand *op)
         op->mode = deferred ? 5 : 4;
         op->has_ext = 0;
         op->pc_relative = 0;
+        op->reloc_label = NULL;
         *str = ptr;
         return 1;
     }
@@ -1492,6 +1714,7 @@ static int parse_operand(char **str, Operand *op)
         }
         op->has_ext = 0;
         op->pc_relative = 0;
+        op->reloc_label = NULL;
         *str = ptr;
         return 1;
     }
@@ -1504,6 +1727,7 @@ static int parse_operand(char **str, Operand *op)
             op->reg = reg;
             op->has_ext = 0;
             op->pc_relative = 0;
+            op->reloc_label = NULL;
             *str = tmp;
             return 1;
         }
@@ -1517,6 +1741,7 @@ static int parse_operand(char **str, Operand *op)
             op->reg = reg;
             op->has_ext = 0;
             op->pc_relative = 0;
+            op->reloc_label = NULL;
             *str = tmp;
             return 1;
         }
@@ -1524,8 +1749,15 @@ static int parse_operand(char **str, Operand *op)
 
     {
         char *tmp = ptr;
-        int val = exp_(&tmp);
+        int val;
+        Label *reloc_label = NULL;
         int has_symbol = 0;
+        reset_expr_reloc();
+        val = exp_(&tmp);
+        if (check_expr_reloc()) {
+            return 0;
+        }
+        reloc_label = expr_reloc_label;
         for (char *p = ptr; p < tmp; p++) {
             if (isalpha(*p) || *p == '_' || *p == '.' || *p == ':' || *p == '$') {
                 has_symbol = 1;
@@ -1546,6 +1778,7 @@ static int parse_operand(char **str, Operand *op)
             op->has_ext = 1;
             op->ext = val;
             op->pc_relative = (op->reg == 7) ? has_symbol : 0;
+            op->reloc_label = reloc_label;
             *str = tmp;
             return 1;
         }
@@ -1555,6 +1788,7 @@ static int parse_operand(char **str, Operand *op)
         op->has_ext = 1;
         op->ext = val;
         op->pc_relative = 1;
+        op->reloc_label = reloc_label;
         *str = tmp;
         return 1;
     }
@@ -1608,7 +1842,18 @@ static int get_bytes(char *str)
             delim = *str++;
             continue;
         } else {
+            unsigned int reloc_offset = output_addr;
+
+            reset_expr_reloc();
             emit_byte(exp_(&str) & 0xFF);
+            if (check_expr_reloc()) {
+                return 0;
+            }
+            if (src_pass == 2 && expr_reloc_label &&
+                    add_reloc(expr_high_byte ? RELOC_MSB : RELOC_LSB,
+                              reloc_offset, expr_reloc_label)) {
+                return 0;
+            }
         }
         if (match(&str, ',') == 0) {
             break;
@@ -1628,7 +1873,17 @@ static int get_words(char *str)
 
     while (*str) {
         char *tmp = str;
+        unsigned int reloc_offset = output_addr;
+
+        reset_expr_reloc();
         int word = exp_(&str);
+        if (check_expr_reloc()) {
+            return 0;
+        }
+        if (src_pass == 2 && expr_reloc_label &&
+                add_reloc(RELOC_WORD, reloc_offset, expr_reloc_label)) {
+            return 0;
+        }
         if (src_pass == 2 && !pad_tail_words) {
             int has_minus = 0;
             int has_alpha = 0;
@@ -1651,6 +1906,34 @@ static int get_words(char *str)
     }
 
     return output_addr - old_addr;
+}
+
+static int emit_operand_ext(Operand *op)
+{
+    unsigned int ext_addr = output_addr;
+    int ext_val = op->ext;
+
+    if (op->pc_relative) {
+        ext_val = op->ext - (int)(ext_addr + 2);
+    }
+
+    emit_word(ext_val & 0xFFFF);
+    if (error != NO_ERROR) {
+        return 1;
+    }
+
+    if (src_pass == 2 && op->reloc_label) {
+        if (op->pc_relative) {
+            if (op->reloc_label->external &&
+                    add_reloc(RELOC_PCREL_WORD, ext_addr, op->reloc_label)) {
+                return 1;
+            }
+        } else if (add_reloc(RELOC_WORD, ext_addr, op->reloc_label)) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 static int do_asm(FILE *inf, char *str);
@@ -1806,6 +2089,89 @@ static char *get_file_path(char *name)
         strcpy(name, ".");
     }
     return name;
+}
+
+static int parse_symbol_list(char *str, int (*handler)(char *name))
+{
+    int got_name = 0;
+
+    do {
+        char *name;
+        char last;
+
+        SKIP_BLANK(str);
+        name = str;
+        SKIP_TOKEN(str);
+        if (str == name) {
+            error = SYNTAX_ERROR;
+            return 1;
+        }
+
+        last = *str;
+        if (last) {
+            *str++ = 0;
+        }
+
+        if (handler(name)) {
+            return 1;
+        }
+        got_name = 1;
+
+        if (!last) {
+            break;
+        }
+        if (last != ',') {
+            SKIP_BLANK(str);
+            if (*str) {
+                error = EXTRA_SYMBOLS;
+                return 1;
+            }
+            break;
+        }
+    } while (*str);
+
+    if (!got_name) {
+        error = SYNTAX_ERROR;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int add_extern_symbol(char *name)
+{
+    Label *label;
+
+    if (find_label(&labels, name) || find_label(&equs, name)) {
+        error = EXTERN_REDEFINED;
+        return 1;
+    }
+
+    if (find_label(&externs, name)) {
+        return 0;
+    }
+
+    label = add_label_ex(&externs, name, 0, src_line, 0);
+    if (!label) {
+        return 1;
+    }
+    label->external = 1;
+    label->absolute = 0;
+
+    return 0;
+}
+
+static int add_public_symbol(char *name)
+{
+    if (find_label(&publics, name)) {
+        return 0;
+    }
+
+    if (!add_label_ex(&publics, name, 0, src_line, 1)) {
+        return 1;
+    }
+
+    return 0;
 }
 
 static int do_asm(FILE *inf, char *line)
@@ -2002,6 +2368,10 @@ static int do_asm(FILE *inf, char *line)
             if (local_parse > 0 && lsb_enabled) {
                 add_local_def(local_num, output_addr, src_line);
             } else {
+                if (find_label(&externs, label)) {
+                    error = EXTERN_REDEFINED;
+                    return 1;
+                }
                 if (in_proc) {
                     Label *global = find_label(&in_proc->globals, label);
                     if (global) {
@@ -2062,13 +2432,81 @@ static int do_asm(FILE *inf, char *line)
                 in_file_path = strdup(dirbuf);
             }
             return 0;
+        } else if (opcode && !strcmp(opcode->name, "extern")) {
+            if (label) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            if (out_type != OUT_OBJECT) {
+                error = EXTERN_NOT_ALLOWED_HERE;
+                return 1;
+            }
+            if (src_pass == 1 && parse_symbol_list(str, add_extern_symbol)) {
+                return 1;
+            }
+            if (src_pass == 2) {
+                list_line_words(list_line, output_addr, NULL, 0, line);
+            }
+        } else if (opcode && !strcmp(opcode->name, "public")) {
+            if (label) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            if (out_type != OUT_OBJECT) {
+                error = EXTERN_NOT_ALLOWED_HERE;
+                return 1;
+            }
+            if (src_pass == 1 && parse_symbol_list(str, add_public_symbol)) {
+                return 1;
+            }
+            if (src_pass == 2) {
+                list_line_words(list_line, output_addr, NULL, 0, line);
+            }
+        } else if (opcode && !strcmp(opcode->name, "entry")) {
+            if (label) {
+                error = SYNTAX_ERROR;
+                return 1;
+            }
+            if (out_type != OUT_OBJECT) {
+                error = EXTERN_NOT_ALLOWED_HERE;
+                return 1;
+            }
+            SKIP_BLANK(str);
+            if (!*str) {
+                error = MISSED_OPCODE_PARAM_1;
+                return 1;
+            }
+            reset_expr_reloc();
+            entry_addr = exp_(&str);
+            if (check_expr_reloc()) {
+                return 1;
+            }
+            if (expr_reloc_label && expr_reloc_label->external) {
+                error = INVALID_ENTRY_POINT;
+                return 1;
+            }
+            SKIP_BLANK(str);
+            if (*str) {
+                error = EXTRA_SYMBOLS;
+                return 1;
+            }
+            has_entry = 1;
+            if (src_pass == 2) {
+                list_line_words(list_line, output_addr, NULL, 0, line);
+            }
         } else if (opcode && !strcmp(opcode->name, "equ")) {
             if (!label) {
                 error = MISSED_NAME_FOR_EQU;
+            } else if (src_pass == 1 && find_label(&externs, label)) {
+                error = EXTERN_REDEFINED;
+                return 1;
             } else {
                 SKIP_BLANK(str);
+                reset_expr_reloc();
                 unsigned int val = exp_(&str);
-                if (src_pass == 2) {
+                int resolved = !to_second_pass && error == NO_ERROR;
+
+                if (src_pass == 1 && error == NO_ERROR) {
                     int local_num = 0;
                     int local_suffix = 0;
                     int local_parse = parse_local_label_token(label, &local_num, &local_suffix);
@@ -2079,13 +2517,42 @@ static int do_asm(FILE *inf, char *line)
                     if (local_parse > 0 && lsb_enabled) {
                         add_local_def(local_num, val, src_line);
                     } else {
+                        Label *equ;
                         if (in_proc) {
-                            add_label(&in_proc->equs, label, val, src_line);
+                            equ = add_label_ex(&in_proc->equs, label, val,
+                                               src_line, resolved);
                         } else {
-                            add_label(&equs, label, val, src_line);
+                            equ = add_label_ex(&equs, label, val, src_line,
+                                               resolved);
+                        }
+                        if (equ) {
+                            equ->absolute = 1;
+                        }
+                    }
+                } else if (src_pass == 2 && error == NO_ERROR) {
+                    int local_num = 0;
+                    int local_suffix = 0;
+                    int local_parse = parse_local_label_token(label, &local_num, &local_suffix);
+                    if (local_parse < 0 || local_suffix != 0) {
+                        error = SYNTAX_ERROR;
+                        return 1;
+                    }
+                    if (local_parse > 0 && lsb_enabled) {
+                        add_local_def(local_num, val, src_line);
+                    } else {
+                        Label *equ;
+                        if (in_proc) {
+                            equ = set_label(&in_proc->equs, label, val,
+                                            src_line, 1);
+                        } else {
+                            equ = set_label(&equs, label, val, src_line, 1);
+                        }
+                        if (equ) {
+                            equ->absolute = 1;
                         }
                     }
                 }
+                to_second_pass = 0;
 
                 if (src_pass == 2) {
                     unsigned short w = val & 0xFFFF;
@@ -2153,8 +2620,16 @@ static int do_asm(FILE *inf, char *line)
             }
             return add_macro(inf, name, params);
         } else if (opcode && !strcmp(opcode->name, "org")) {
+            if (out_type == OUT_OBJECT) {
+                error = ORG_NOT_ALLOWED_IN_OBJECT;
+                return 1;
+            }
             SKIP_BLANK(str);
+            reset_expr_reloc();
             start_addr = exp_(&str);
+            if (reject_reloc_expr()) {
+                return 1;
+            }
             output_addr = start_addr;
             if (src_pass == 2) {
                 list_line_words(list_line, output_addr, NULL, 0, line);
@@ -2237,6 +2712,10 @@ static int do_asm(FILE *inf, char *line)
                 list_line_words(list_line, output_addr, NULL, 0, line);
             }
         } else if (opcode && opcode->type == pseudo_chksum) {
+            if (out_type == OUT_OBJECT) {
+                error = CHKSUM_NOT_ALLOWED_IN_OBJECT;
+                return 1;
+            }
             use_chksum = 1;
             chksum_addr = output_addr;
             emit_word(0);
@@ -2268,11 +2747,19 @@ static int do_asm(FILE *inf, char *line)
                     }
                     count = 1;
                 } else {
+                    reset_expr_reloc();
                     count = exp_(&str);
+                    if (reject_reloc_expr()) {
+                        return 1;
+                    }
                 }
 
                 if (match(&str, ',')) {
+                    reset_expr_reloc();
                     int val = exp_(&str) & 0xFFFF;
+                    if (reject_reloc_expr()) {
+                        return 1;
+                    }
                     if (opcode->type == pseudo_ds) {
                         fill = val & 0xFF;
                     } else if (opcode->type == pseudo_dsw) {
@@ -2364,7 +2851,15 @@ static int do_asm(FILE *inf, char *line)
                 emit_word(word);
             } else if (opcode->type == op_branch) {
                 SKIP_BLANK(str);
+                reset_expr_reloc();
                 int val = exp_(&str);
+                if (check_expr_reloc()) {
+                    return 1;
+                }
+                if (expr_reloc_label && expr_reloc_label->external) {
+                    error = EXTERN_NOT_ALLOWED_HERE;
+                    return 1;
+                }
                 int offset = (val - (int)(old_addr + 2)) / 2;
                 if (src_pass == 2 && (offset < -128 || offset > 127)) {
                     error = LONG_RELATED_OFFSET;
@@ -2385,13 +2880,8 @@ static int do_asm(FILE *inf, char *line)
                 }
                 word = opcode->base | operand_spec(&dst_op);
                 emit_word(word);
-                if (dst_op.has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = dst_op.ext;
-                    if (dst_op.pc_relative) {
-                        ext_val = dst_op.ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (dst_op.has_ext && emit_operand_ext(&dst_op)) {
+                    return 1;
                 }
             } else if (opcode->type == op_jsr) {
                 int reg;
@@ -2409,13 +2899,8 @@ static int do_asm(FILE *inf, char *line)
                 }
                 word = opcode->base | ((reg & 0x07) << 6) | operand_spec(&dst_op);
                 emit_word(word);
-                if (dst_op.has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = dst_op.ext;
-                    if (dst_op.pc_relative) {
-                        ext_val = dst_op.ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (dst_op.has_ext && emit_operand_ext(&dst_op)) {
+                    return 1;
                 }
             } else if (opcode->type == op_rts) {
                 int reg;
@@ -2438,7 +2923,15 @@ static int do_asm(FILE *inf, char *line)
                     error = EXPECTED_ARG_2;
                     return 1;
                 }
+                reset_expr_reloc();
                 val = exp_(&str);
+                if (check_expr_reloc()) {
+                    return 1;
+                }
+                if (expr_reloc_label && expr_reloc_label->external) {
+                    error = EXTERN_NOT_ALLOWED_HERE;
+                    return 1;
+                }
                 int offset = ((int)(old_addr + 2) - val) / 2;
                 if (src_pass == 2 && (offset < 0 || offset > 63)) {
                     error = LONG_RELATED_OFFSET;
@@ -2448,7 +2941,11 @@ static int do_asm(FILE *inf, char *line)
                 emit_word(word);
             } else if (opcode->type == op_mark) {
                 SKIP_BLANK(str);
+                reset_expr_reloc();
                 int val = exp_(&str);
+                if (reject_reloc_expr()) {
+                    return 1;
+                }
                 if (val < 0 || val > 63) {
                     error = SYNTAX_ERROR;
                     return 1;
@@ -2471,13 +2968,8 @@ static int do_asm(FILE *inf, char *line)
                 }
                 word = opcode->base | ((reg & 0x07) << 6) | operand_spec(&src_op);
                 emit_word(word);
-                if (src_op.has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = src_op.ext;
-                    if (src_op.pc_relative) {
-                        ext_val = src_op.ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (src_op.has_ext && emit_operand_ext(&src_op)) {
+                    return 1;
                 }
             } else if (opcode->type == op_xor) {
                 int reg;
@@ -2495,13 +2987,8 @@ static int do_asm(FILE *inf, char *line)
                 }
                 word = opcode->base | ((reg & 0x07) << 6) | operand_spec(&dst_op);
                 emit_word(word);
-                if (dst_op.has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = dst_op.ext;
-                    if (dst_op.pc_relative) {
-                        ext_val = dst_op.ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (dst_op.has_ext && emit_operand_ext(&dst_op)) {
+                    return 1;
                 }
             } else if (opcode->type == op_fis) {
                 int reg;
@@ -2514,12 +3001,20 @@ static int do_asm(FILE *inf, char *line)
                 emit_word(word);
             } else if (opcode->type == op_trap || opcode->type == op_emt) {
                 SKIP_BLANK(str);
+                reset_expr_reloc();
                 int val = exp_(&str);
+                if (reject_reloc_expr()) {
+                    return 1;
+                }
                 word = opcode->base | (val & 0xFF);
                 emit_word(word);
             } else if (opcode->type == op_spl) {
                 SKIP_BLANK(str);
+                reset_expr_reloc();
                 int val = exp_(&str);
+                if (reject_reloc_expr()) {
+                    return 1;
+                }
                 word = opcode->base | (val & 0x07);
                 emit_word(word);
             } else if (opcode->type == op_fp11_f5) {
@@ -2540,13 +3035,8 @@ static int do_asm(FILE *inf, char *line)
                 }
                 word = opcode->base | operand_spec(&dst_op);
                 emit_word(word);
-                if (dst_op.has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = dst_op.ext;
-                    if (dst_op.pc_relative) {
-                        ext_val = dst_op.ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (dst_op.has_ext && emit_operand_ext(&dst_op)) {
+                    return 1;
                 }
             } else if (opcode->type == op_fp11_f2) {
                 if (!enable_fp11) {
@@ -2567,13 +3057,8 @@ static int do_asm(FILE *inf, char *line)
                 }
                 word = opcode->base | operand_spec(&dst_op);
                 emit_word(word);
-                if (dst_op.has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = dst_op.ext;
-                    if (dst_op.pc_relative) {
-                        ext_val = dst_op.ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (dst_op.has_ext && emit_operand_ext(&dst_op)) {
+                    return 1;
                 }
             } else if (opcode->type == op_fp11_f3) {
                 if (!enable_fp11) {
@@ -2625,13 +3110,8 @@ static int do_asm(FILE *inf, char *line)
                 }
                 word = opcode->base | (ac << 6) | operand_spec(ea_op);
                 emit_word(word);
-                if (ea_op->has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = ea_op->ext;
-                    if (ea_op->pc_relative) {
-                        ext_val = ea_op->ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (ea_op->has_ext && emit_operand_ext(ea_op)) {
+                    return 1;
                 }
             } else if (opcode->type == op_fp11_f1) {
                 if (!enable_fp11) {
@@ -2696,13 +3176,8 @@ static int do_asm(FILE *inf, char *line)
                 }
                 word = opcode->base | (ac << 6) | operand_spec(f_ea);
                 emit_word(word);
-                if (f_ea->has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = f_ea->ext;
-                    if (f_ea->pc_relative) {
-                        ext_val = f_ea->ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (f_ea->has_ext && emit_operand_ext(f_ea)) {
+                    return 1;
                 }
             } else if (opcode->type == op_single) {
                 if (!parse_operand(&str, &dst_op)) {
@@ -2713,13 +3188,8 @@ static int do_asm(FILE *inf, char *line)
                     word |= 0100000;
                 }
                 emit_word(word);
-                if (dst_op.has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = dst_op.ext;
-                    if (dst_op.pc_relative) {
-                        ext_val = dst_op.ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (dst_op.has_ext && emit_operand_ext(&dst_op)) {
+                    return 1;
                 }
             } else if (opcode->type == op_double) {
                 if (!parse_operand(&str, &src_op)) {
@@ -2737,21 +3207,11 @@ static int do_asm(FILE *inf, char *line)
                     word |= 0100000;
                 }
                 emit_word(word);
-                if (src_op.has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = src_op.ext;
-                    if (src_op.pc_relative) {
-                        ext_val = src_op.ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (src_op.has_ext && emit_operand_ext(&src_op)) {
+                    return 1;
                 }
-                if (dst_op.has_ext) {
-                    unsigned int ext_addr = output_addr;
-                    int ext_val = dst_op.ext;
-                    if (dst_op.pc_relative) {
-                        ext_val = dst_op.ext - (int)(ext_addr + 2);
-                    }
-                    emit_word(ext_val & 0xFFFF);
+                if (dst_op.has_ext && emit_operand_ext(&dst_op)) {
+                    return 1;
                 }
             } else {
                 error = SYNTAX_ERROR;
@@ -2938,6 +3398,153 @@ static void output_binary(FILE *outf)
     }
 }
 
+static void write_u16(FILE *outf, unsigned int val)
+{
+    fputc(val & 0xff, outf);
+    fputc((val >> 8) & 0xff, outf);
+}
+
+static void write_u32(FILE *outf, unsigned int val)
+{
+    write_u16(outf, val & 0xffff);
+    write_u16(outf, (val >> 16) & 0xffff);
+}
+
+static int write_obj_name(FILE *outf, char *name)
+{
+    unsigned char buf[16];
+    size_t len = strlen(name);
+
+    if (len >= sizeof(buf)) {
+        error = SYMBOL_NAME_TOO_LONG;
+        return 1;
+    }
+
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf, name, len);
+    fwrite(buf, 1, sizeof(buf), outf);
+    return 0;
+}
+
+static Label *find_public_target(char *name)
+{
+    Label *label = find_label(&labels, name);
+
+    if (!label) {
+        label = find_label(&equs, name);
+    }
+
+    return label;
+}
+
+static int validate_publics(void)
+{
+    Label *pub = publics;
+
+    while (pub) {
+        Label *target = find_public_target(pub->name);
+
+        if (!target || target->external) {
+            error = PUBLIC_NOT_DEFINED;
+            return 1;
+        }
+
+        pub = pub->prev;
+    }
+
+    return 0;
+}
+
+static int output_object(FILE *outf)
+{
+    unsigned int ent_count = count_labels(publics);
+    unsigned int ext_count = count_labels(externs);
+    unsigned int code_len = output_addr - start_addr;
+    unsigned int code_offset = 0x20 + (ent_count + ext_count) * 20;
+    unsigned int entry_offset = 0xffff;
+    Label *ptr;
+    Reloc *reloc;
+    unsigned int reloc_count = 0;
+
+    if (validate_publics()) {
+        return 1;
+    }
+
+    if (has_entry) {
+        if (entry_addr < start_addr || entry_addr > output_addr) {
+            error = INVALID_ENTRY_POINT;
+            return 1;
+        }
+        entry_offset = code_offset + (entry_addr - start_addr);
+    }
+
+    write_u16(outf, 0x5aa5);
+    write_u16(outf, 0x0001);
+    write_u16(outf, ent_count);
+    write_u16(outf, ext_count);
+    write_u16(outf, code_len);
+    write_u32(outf, code_offset);
+    write_u16(outf, entry_offset);
+    write_u16(outf, 0);
+    for (int i = 0; i < 14; i++) {
+        fputc(0, outf);
+    }
+
+    ptr = publics;
+    while (ptr) {
+        Label *target = find_public_target(ptr->name);
+
+        if (write_obj_name(outf, ptr->name)) {
+            return 1;
+        }
+        write_u16(outf, target->address - (target->absolute ? 0 : start_addr));
+        write_u16(outf, target->absolute ? 0xffff : 0x0000);
+        ptr = ptr->prev;
+    }
+
+    ptr = externs;
+    while (ptr) {
+        if (write_obj_name(outf, ptr->name)) {
+            return 1;
+        }
+        write_u32(outf, 0);
+        ptr = ptr->prev;
+    }
+
+    for (unsigned int i = start_addr; i < output_addr; i++) {
+        fwrite(&output[i], 1, 1, outf);
+    }
+
+    reloc = relocs;
+    while (reloc) {
+        reloc_count++;
+        reloc = reloc->next;
+    }
+    write_u16(outf, reloc_count);
+
+    reloc = relocs;
+    while (reloc) {
+        unsigned int val = 0;
+
+        if (reloc->external) {
+            int index = label_index(externs, reloc->name);
+            if (index < 0) {
+                error = CANNOT_RESOLVE_REF;
+                return 1;
+            }
+            val = index;
+        }
+
+        fputc((reloc->external ? 0x80 : 0x00) | (reloc->type & 0x7f), outf);
+        write_u16(outf, val);
+        write_u16(outf, reloc->offset);
+        reloc = reloc->next;
+    }
+
+    fputc(0, outf);
+    return ferror(outf) ? 1 : 0;
+}
+
 static void calculate_chksum(void)
 {
     unsigned short chksum = 0;
@@ -3019,6 +3626,22 @@ static char *get_error_string(int error)
         return "illegal FP accumulator number (AC6/AC7 not supported on FP11-A)";
     case WRONG_FP_OPERAND_FORM:
         return "wrong operand form for this FP11 instruction";
+    case NO_MEMORY_FOR_RELOC:
+        return "No memory for relocation";
+    case EXTERN_REDEFINED:
+        return "External symbol already defined";
+    case PUBLIC_NOT_DEFINED:
+        return "Public symbol is not defined";
+    case ORG_NOT_ALLOWED_IN_OBJECT:
+        return "ORG is not allowed in object output";
+    case CHKSUM_NOT_ALLOWED_IN_OBJECT:
+        return "CHKSUM is not allowed in object output";
+    case EXTERN_NOT_ALLOWED_HERE:
+        return "External symbols are not allowed here";
+    case INVALID_ENTRY_POINT:
+        return "Invalid entry point";
+    case SYMBOL_NAME_TOO_LONG:
+        return "Symbol name too long for object file";
     default:
         return "No error";
     }
@@ -3044,23 +3667,24 @@ static char *get_out_name(char *in_str, char *ext)
 
 int main(int argc, char *argv[])
 {
-    int out_type = 0;
     char *input_path = NULL;
     char *output_path = NULL;
     char *list_path = NULL;
     const char *cpu_name = NULL;
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--enable-fp11] [--list <file|-] <input_file> [output_file]\n",
+        fprintf(stderr, "Usage: %s [-verilog|-binary|-object|-obj] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--enable-fp11] [--list <file|-] <input_file> [output_file]\n",
                 argv[0]);
         return 1;
     }
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-verilog")) {
-            out_type = 1;
+            out_type = OUT_VERILOG;
         } else if (!strcmp(argv[i], "-binary")) {
-            out_type = 2;
+            out_type = OUT_BINARY;
+        } else if (!strcmp(argv[i], "-object") || !strcmp(argv[i], "-obj")) {
+            out_type = OUT_OBJECT;
         } else if (!strcmp(argv[i], "--case-sensitive-symbols")) {
             case_sensitive_symbols = 1;
         } else if (!strcmp(argv[i], "--jmp-label-indirect")) {
@@ -3090,7 +3714,7 @@ int main(int argc, char *argv[])
     }
 
     if (!input_path) {
-        fprintf(stderr, "Usage: %s [-verilog|-binary] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--list <file|-] <input_file> [output_file]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-verilog|-binary|-object|-obj] [--case-sensitive-symbols] [--jmp-label-indirect] [--cpu <name>] [--list <file|-] <input_file> [output_file]\n", argv[0]);
         return 1;
     }
 
@@ -3133,6 +3757,9 @@ int main(int argc, char *argv[])
         tail_zero_start = -1;
         lsb_reset();
         local_defs = NULL;
+        relocs = NULL;
+        relocs_tail = NULL;
+        has_entry = 0;
 
         // Pass 1
 
@@ -3167,6 +3794,7 @@ int main(int argc, char *argv[])
         emit_is_fill = 0;
         tail_zero_start = -1;
         lsb_reset();
+        has_entry = 0;
 
         if (fseek(in_file, 0, SEEK_SET) != 0) {
             fprintf(stderr, "Error rewinding file for pass 2\n");
@@ -3220,14 +3848,23 @@ int main(int argc, char *argv[])
             if (output_path) {
                 name = strdup(output_path);
             } else {
-                name = get_out_name(input_path, (out_type == 2) ? ".bin" : (out_type == 1) ? ".v" : ".mem");
+                name = get_out_name(input_path,
+                                    (out_type == OUT_BINARY) ? ".bin" :
+                                    (out_type == OUT_VERILOG) ? ".v" :
+                                    (out_type == OUT_OBJECT) ? ".obj" :
+                                    ".mem");
             }
             FILE *outf = fopen(name, "wb");
             if (outf) {
-                if (out_type == 2) {
+                if (out_type == OUT_BINARY) {
                     output_binary(outf);
-                } else if (out_type) {
+                } else if (out_type == OUT_VERILOG) {
                     output_verilog(outf);
+                } else if (out_type == OUT_OBJECT) {
+                    if (output_object(outf)) {
+                        fprintf(stderr, "Compilation failed: %s\n\n",
+                                get_error_string(error));
+                    }
                 } else {
                     output_hex(outf);
                 }
