@@ -1038,7 +1038,8 @@ static int parse_fp_register(char **str, int *reg)
 
     SKIP_BLANK(ptr_str);
 
-    while(*ptr_str && isalnum(*ptr_str)) {
+    while(*ptr_str && (isalnum(*ptr_str) || *ptr_str == '_' ||
+                      *ptr_str == '.' || *ptr_str == ':' || *ptr_str == '$')) {
         if (ptr - tmp >= 255) {
             break;
         }
@@ -1086,7 +1087,8 @@ static Register* find_register_in_string(char **str)
 
     SKIP_BLANK(ptr_str);
 
-    while(*ptr_str && isalnum(*ptr_str)) {
+    while(*ptr_str && (isalnum(*ptr_str) || *ptr_str == '_' ||
+                      *ptr_str == '.' || *ptr_str == ':' || *ptr_str == '$')) {
         if (ptr - tmp >= 255) {
             break;
         }

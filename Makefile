@@ -26,6 +26,7 @@ tests: $(TARGET) gen-tests
 	./tests11/run_tests.sh
 	bash ./tests11/run_object_tests.sh
 	sh ./tests11/run_org_tests.sh
+	sh ./tests11/run_parser_tests.sh
 	$(MAKE) -C tests11/test2
 
 gen-tests:
