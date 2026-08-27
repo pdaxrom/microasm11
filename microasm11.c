@@ -419,6 +419,9 @@ static FILE *in_file;
 static unsigned char output[65536];
 static unsigned int start_addr = 0;
 static unsigned int output_addr = 0;
+static unsigned int output_first_addr = 0;
+static unsigned int output_last_addr = 0;
+static int output_range_valid = 0;
 
 static int use_chksum = 0;
 static unsigned int chksum_addr;
@@ -695,7 +698,14 @@ static int emit_byte(unsigned char b)
     } else {
         tail_zero_start = -1;
     }
+    if (!output_range_valid || output_addr < output_first_addr) {
+        output_first_addr = output_addr;
+    }
     output[output_addr++] = b;
+    if (!output_range_valid || output_addr > output_last_addr) {
+        output_last_addr = output_addr;
+    }
+    output_range_valid = 1;
     return 1;
 }
 
@@ -2626,11 +2636,11 @@ static int do_asm(FILE *inf, char *line)
             }
             SKIP_BLANK(str);
             reset_expr_reloc();
-            start_addr = exp_(&str);
+            unsigned int org_addr = exp_(&str);
             if (reject_reloc_expr()) {
                 return 1;
             }
-            output_addr = start_addr;
+            output_addr = org_addr;
             if (src_pass == 2) {
                 list_line_words(list_line, output_addr, NULL, 0, line);
             }
@@ -3336,12 +3346,31 @@ static int do_asm(FILE *inf, char *line)
     return 0;
 }
 
+static void output_range(unsigned int *out_start, unsigned int *out_end)
+{
+    if (!output_range_valid) {
+        *out_start = 0;
+        *out_end = 0;
+        return;
+    }
+
+    *out_start = output_first_addr;
+    *out_end = output_last_addr;
+    if (tail_zero_start >= 0 && output_addr == output_last_addr &&
+            (unsigned int)tail_zero_start >= output_first_addr) {
+        *out_end = (unsigned int)tail_zero_start;
+    }
+}
+
 static void output_hex(FILE *outf)
 {
     int i;
-    unsigned int out_end = (tail_zero_start >= 0) ? (unsigned int)tail_zero_start : output_addr;
+    unsigned int out_start;
+    unsigned int out_end;
 
-    for (i = start_addr; i < out_end; i++) {
+    output_range(&out_start, &out_end);
+
+    for (i = out_start; i < out_end; i++) {
         if ((i % 16) == 0) {
             fprintf(outf, "%04X:", i);
         }
@@ -3372,8 +3401,10 @@ static void output_verilog(FILE *outf)
             "\n"														\
             "    initial begin\n");
 
-    unsigned int out_end = (tail_zero_start >= 0) ? (unsigned int)tail_zero_start : output_addr;
-    for (unsigned int i = start_addr; i < out_end; i++) {
+    unsigned int out_start;
+    unsigned int out_end;
+    output_range(&out_start, &out_end);
+    for (unsigned int i = out_start; i < out_end; i++) {
         fprintf(outf, "        Mem[%d] = 8'h%02x;\n", i, output[i]);
     }
 
@@ -3392,8 +3423,10 @@ static void output_verilog(FILE *outf)
 
 static void output_binary(FILE *outf)
 {
-    unsigned int out_end = (tail_zero_start >= 0) ? (unsigned int)tail_zero_start : output_addr;
-    for (unsigned int i = start_addr; i < out_end; i++) {
+    unsigned int out_start;
+    unsigned int out_end;
+    output_range(&out_start, &out_end);
+    for (unsigned int i = out_start; i < out_end; i++) {
         fwrite(&output[i], 1, 1, outf);
     }
 }
@@ -3755,6 +3788,7 @@ int main(int argc, char *argv[])
         pad_tail_words = 0;
         emit_is_fill = 0;
         tail_zero_start = -1;
+        output_range_valid = 0;
         lsb_reset();
         local_defs = NULL;
         relocs = NULL;
@@ -3793,6 +3827,8 @@ int main(int argc, char *argv[])
         in_proc = NULL;
         emit_is_fill = 0;
         tail_zero_start = -1;
+        output_range_valid = 0;
+        memset(output, 0, sizeof(output));
         lsb_reset();
         has_entry = 0;
 

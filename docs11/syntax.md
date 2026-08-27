@@ -114,7 +114,10 @@ Notes:
 
 All directives are parsed as mnemonics.
 
-- `ORG <expr>`: set start/output address.
+- `ORG <expr>`: set the current output address. Multiple `ORG` directives are
+  supported for non-object output; gaps between emitted regions are zero-filled.
+  A raw binary starts at the lowest emitted address and ends at the highest, so
+  it does not carry the absolute load address as metadata.
 - `DB <expr|string>[,<expr|string>...]`: emit bytes. Double-quoted strings emit
   characters with escapes (`\n`, `\r`, `\t`, `\0`, `\\`, `\"`, `\'`).
   **Single-quoted strings emit a zero byte per character** (implementation quirk).
